@@ -3,28 +3,33 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, generateObject } from 'ai';
 import { requireAuth } from '@/lib/auth.js';
 import { createConversation, getConversation, updateConversation } from '@/lib/db/conversations.js';
-import { buildSystemPrompt, DRAFT_GENERATION_PROMPT } from '@/lib/ai/prompts.js';
-import { UnitEconomicsDraftSchema } from '@/lib/ai/schemas.js';
+import { buildSystemPrompt, DRAFT_GENERATION_PROMPT, EXTRACTION_PROMPT } from '@/lib/ai/prompts.js';
+import { UnitEconomicsDraftSchema, BusinessExtractionSchema } from '@/lib/ai/schemas.js';
 import { searchBusinessContext, formatEnrichmentForPrompt } from '@/lib/exa/search.js';
 
-/* ── AI client (Vercel AI Gateway) ── */
+/* ── Increase serverless function timeout to 120s ── */
+export const maxDuration = 120;
+
+/* ── AI client (Vercel AI Gateway) ──
+ * IMPORTANT: Use openai.chat() to force the Chat Completions API.
+ * @ai-sdk/openai v3+ defaults to the Responses API (openai.responses),
+ * which the Vercel AI Gateway proxy does not support.
+ */
 const openai = createOpenAI({
   apiKey: process.env.AI_GATEWAY_API_KEY,
   baseURL: process.env.AI_GATEWAY_BASE_URL || 'https://ai-gateway.vercel.sh/v1',
 });
 
-const MODEL = process.env.AI_GATEWAY_MODEL || 'openai/gpt-4o';
+const MODEL_ID = process.env.AI_GATEWAY_MODEL || 'openai/gpt-4o';
+const model = openai.chat(MODEL_ID);
 
-/* ── Step sequence ── */
+/* ── Streamlined step sequence ── */
 const STEP_ORDER = [
-  'understand_business',
-  'company_details',
-  'products_services',
-  'team_structure',
-  'costs_and_investment',
-  'auto_draft',
-  'confirm_review',
-  'complete',
+  'extract',        // Smart extraction from first message
+  'fill_gaps',      // ONE consolidated gap-fill question (skippable)
+  'generate',       // Full draft generation
+  'confirm_review', // User reviews the model
+  'complete',       // Done
 ];
 
 /* ── Compute completion % ── */
@@ -32,21 +37,6 @@ function computeCompletion(step) {
   const idx = STEP_ORDER.indexOf(step);
   if (idx < 0) return 0;
   return Math.round(((idx + 1) / STEP_ORDER.length) * 100);
-}
-
-/* ── Extract [DATA: {...}] tags from AI response ── */
-function extractDataTags(text) {
-  const dataTags = [];
-  const regex = /\[DATA:\s*(\{[\s\S]*?\})\s*\]/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    try {
-      dataTags.push(JSON.parse(match[1]));
-    } catch (e) {
-      console.warn('Failed to parse DATA tag:', match[1]);
-    }
-  }
-  return dataTags;
 }
 
 /* ── Clean AI text for display (strip tags) ── */
@@ -75,127 +65,231 @@ function extractSheetNav(text) {
   return match ? match[1] : null;
 }
 
-/* ── Merge user message data into knowledge graph ── */
-function mergeIntoKG(kg, data) {
-  for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined && value !== null && value !== '') {
-      kg[key] = value;
+/* ── Merge extraction data into knowledge graph ── */
+function mergeExtractionIntoKG(kg, extraction) {
+  const fields = [
+    'companyName', 'businessDescription', 'productsServices',
+    'targetCustomer', 'city', 'businessStage', 'teamInfo',
+    'monthlyRevenue', 'investmentAmount', 'monthlyRent',
+    'profitTarget', 'loanInfo', 'costInfo',
+  ];
+  for (const field of fields) {
+    const val = extraction[field];
+    if (val !== undefined && val !== null && val !== '' &&
+        !(Array.isArray(val) && val.length === 0)) {
+      kg[field] = val;
     }
   }
+  kg.confidenceScore = extraction.confidenceScore;
+  kg.missingCritical = extraction.missingCritical;
   return kg;
 }
 
-/* ── Determine next step based on what we know ── */
-function nextStep(currentStep, kg) {
-  const idx = STEP_ORDER.indexOf(currentStep);
-  if (idx < 0) return STEP_ORDER[0];
-
-  // Check if we can auto-advance
-  if (currentStep === 'understand_business') {
-    if (kg.companyName && kg.businessDescription) {
-      return 'company_details';
-    }
-  }
-  if (currentStep === 'company_details') {
-    if (kg.businessStage && kg.city) {
-      return 'products_services';
-    }
-  }
-  if (currentStep === 'products_services') {
-    if (kg.productsServices || (kg.products && kg.products.length > 0)) {
-      return 'team_structure';
-    }
-  }
-  if (currentStep === 'team_structure') {
-    if (kg.teamSize || (kg.employees && kg.employees.length > 0)) {
-      return 'costs_and_investment';
-    }
-  }
-  if (currentStep === 'costs_and_investment') {
-    // Move to auto-draft after costs
-    return 'auto_draft';
-  }
-  if (currentStep === 'auto_draft') {
-    return 'confirm_review';
-  }
-  if (currentStep === 'confirm_review') {
-    return 'complete';
-  }
-
-  // Default: stay on current step
-  return currentStep;
+/* ── Detect meta-commands (not real business content) ── */
+const META_PHRASES = ['try again', 'retry', 'let me try', 'start over'];
+function isMetaCommand(text) {
+  const lower = text.trim().toLowerCase();
+  return lower.length < 30 && META_PHRASES.some(p => lower.includes(p));
 }
 
-/* ── Parse user input for business data ── */
-function parseUserInput(message, currentStep) {
-  const data = {};
-  const text = message.trim();
-
-  // Business stage detection
-  const stageMap = {
-    'idea': 'idea',
-    'early': 'early',
-    'growth': 'growth',
-    'scale': 'scale',
-    '0-6': 'early',
-    '6-24': 'growth',
-    '24+': 'scale',
-  };
-  for (const [keyword, stage] of Object.entries(stageMap)) {
-    if (text.toLowerCase().includes(keyword)) {
-      data.businessStage = stage;
-      break;
+/* ── Find the last substantive user message from history ── */
+function findLastSubstantiveMessage(msgs) {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.role === 'user' && m.text && m.text.length > 30 && !isMetaCommand(m.text)) {
+      return m.text;
     }
   }
-
-  // Money parsing (INR)
-  const moneyRegex = /[\u20B9₹]?\s*([\d,]+(?:\.\d+)?)\s*(?:lakh|lac|L)/gi;
-  let moneyMatch;
-  const amounts = [];
-  while ((moneyMatch = moneyRegex.exec(text)) !== null) {
-    amounts.push(parseFloat(moneyMatch[1].replace(/,/g, '')) * 100000);
-  }
-
-  const croreRegex = /[\u20B9₹]?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr)/gi;
-  while ((moneyMatch = croreRegex.exec(text)) !== null) {
-    amounts.push(parseFloat(moneyMatch[1].replace(/,/g, '')) * 10000000);
-  }
-
-  const plainRegex = /[\u20B9₹]\s*([\d,]+(?:\.\d+)?)/g;
-  while ((moneyMatch = plainRegex.exec(text)) !== null) {
-    const val = parseFloat(moneyMatch[1].replace(/,/g, ''));
-    if (val > 100) amounts.push(val); // Skip tiny amounts
-  }
-
-  // Assign amounts based on context/step
-  if (currentStep === 'costs_and_investment' && amounts.length > 0) {
-    if (text.toLowerCase().includes('rent')) data.monthlyRent = amounts[0];
-    if (text.toLowerCase().includes('invest')) data.investmentAmount = amounts[0];
-    if (text.toLowerCase().includes('loan') || text.toLowerCase().includes('borrow')) data.loansBorrowings = amounts[0];
-    if (text.toLowerCase().includes('profit') || text.toLowerCase().includes('target')) data.profitTarget = amounts[0];
-  }
-
-  // Team size parsing
-  const teamMatch = text.match(/(\d+)\s*(?:people|employees|team|members|staff)/i);
-  if (teamMatch) {
-    data.teamSize = parseInt(teamMatch[1]);
-  }
-
-  // City parsing (common Indian cities)
-  const indianCities = ['mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad', 'chennai',
-    'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'surat', 'kochi', 'indore',
-    'chandigarh', 'nagpur', 'patna', 'bhopal', 'visakhapatnam', 'coimbatore'];
-  for (const city of indianCities) {
-    if (text.toLowerCase().includes(city)) {
-      data.city = city.charAt(0).toUpperCase() + city.slice(1);
-      break;
-    }
-  }
-
-  return data;
+  return null;
 }
 
-/* ── Main POST handler ── */
+/* ── Detect skip/go-ahead intent ── */
+const SKIP_PHRASES = ['go ahead', 'use defaults', 'skip', 'just generate', 'proceed', 'defaults'];
+function isSkipCommand(text) {
+  return SKIP_PHRASES.some(p => text.toLowerCase().includes(p));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   generateObject with retry + fallback
+   ═══════════════════════════════════════════════════════════ */
+async function generateObjectSafe(params, retries = 2) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await generateObject(params);
+      return result;
+    } catch (err) {
+      lastError = err;
+      console.warn(`generateObject attempt ${attempt + 1} failed:`, err.message);
+      if (attempt < retries) {
+        // Brief pause before retry (500ms, 1500ms)
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STEP HANDLERS
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * STEP: extract
+ * Use generateObject() with BusinessExtractionSchema to extract all fields.
+ * If generateObject fails, falls back to minimal extraction.
+ */
+async function handleExtract(message, kg) {
+  let extraction;
+  try {
+    const { object } = await generateObjectSafe({
+      model: model,
+      schema: BusinessExtractionSchema,
+      system: buildSystemPrompt('extract'),
+      prompt: `${EXTRACTION_PROMPT}\n\nUser message:\n"${message}"`,
+    }, 1); // 1 retry
+    extraction = object;
+  } catch (err) {
+    console.error('Extraction generateObject failed after retries:', err.message);
+    // Fallback: store the raw message as business description,
+    // set low confidence so we go to fill_gaps
+    extraction = {
+      companyName: null,
+      businessDescription: message.substring(0, 1000),
+      productsServices: [],
+      targetCustomer: null,
+      city: null,
+      businessStage: null,
+      teamInfo: null,
+      monthlyRevenue: null,
+      investmentAmount: null,
+      monthlyRent: null,
+      profitTarget: null,
+      loanInfo: null,
+      costInfo: null,
+      confidenceScore: 0.4,
+      missingCritical: ['product/service details', 'city/location', 'business stage'],
+    };
+  }
+
+  mergeExtractionIntoKG(kg, extraction);
+
+  const confidence = extraction.confidenceScore || 0;
+  const missing = extraction.missingCritical || [];
+
+  if (confidence >= 0.7 || missing.length === 0) {
+    return { nextStep: 'generate', kg };
+  }
+
+  return { nextStep: 'fill_gaps', kg };
+}
+
+/**
+ * STEP: fill_gaps
+ * User replied to gap-fill or said "go ahead".
+ * Re-extract from their reply, then move to generate.
+ */
+async function handleFillGaps(message, kg) {
+  if (!isSkipCommand(message)) {
+    // Re-extract from the gap-fill reply to capture new info
+    try {
+      const { object: extraction } = await generateObjectSafe({
+        model: model,
+        schema: BusinessExtractionSchema,
+        system: buildSystemPrompt('extract'),
+        prompt: `${EXTRACTION_PROMPT}\n\nPrevious context:\n${JSON.stringify(kg, null, 2)}\n\nUser's follow-up with additional details:\n"${message}"`,
+      }, 1);
+      mergeExtractionIntoKG(kg, extraction);
+    } catch (err) {
+      console.warn('Re-extraction failed, proceeding with existing data:', err.message);
+    }
+  }
+
+  return { nextStep: 'generate', kg };
+}
+
+/**
+ * STEP: generate
+ * Generate the full draft. Includes Exa search enrichment.
+ */
+async function handleGenerate(kg) {
+  // Enrich KG with real industry data from Exa search
+  let enrichmentText = '';
+  try {
+    const enrichment = await searchBusinessContext(kg);
+    if (enrichment && Object.keys(enrichment).length > 0) {
+      kg.webResearch = enrichment;
+      enrichmentText = formatEnrichmentForPrompt(enrichment);
+    }
+  } catch (exaErr) {
+    console.warn('Exa enrichment skipped:', exaErr.message);
+  }
+
+  // Strip large fields from KG to keep prompt size manageable
+  const kgForPrompt = { ...kg };
+  delete kgForPrompt.draft;
+  delete kgForPrompt.webResearch;
+
+  let draftPrompt = `${DRAFT_GENERATION_PROMPT}\n\n## Business Context:\n${JSON.stringify(kgForPrompt, null, 2)}`;
+  if (enrichmentText) {
+    draftPrompt += `\n\n## Real Industry Data (from web research \u2014 use these to calibrate your numbers):\n${enrichmentText}`;
+  }
+
+  const { object: draft } = await generateObjectSafe({
+    model: model,
+    schema: UnitEconomicsDraftSchema,
+    prompt: draftPrompt,
+    system: buildSystemPrompt('generate', kgForPrompt),
+  }, 2); // 2 retries for draft generation
+
+  // Merge draft data back into KG
+  kg.draft = draft;
+  kg.companyName = draft.companyName || kg.companyName;
+  kg.industry = draft.industry || kg.industry;
+
+  // Generate a summary message
+  const { text: summaryText } = await generateText({
+    model: model,
+    system: buildSystemPrompt('confirm_review', kgForPrompt),
+    prompt: `You just generated a complete Unit Economics model for "${kg.companyName || 'the business'}".
+Summarize what was generated in a concise bullet list:
+- ${draft.employees?.length || 0} team members across ${new Set(draft.employees?.map(e => e.department) || []).size} departments
+- ${draft.products?.length || 0} products/services
+- ${draft.marketingChannels?.length || 0} marketing channels (AI-generated)
+- ${draft.adminExpenses?.length || 0} admin expense items
+- ${draft.capexItems?.length || 0} CAPEX items
+- ${draft.loans?.length || 0} loan(s)
+- ${draft.cities?.length || 0} cities for geo pricing
+
+Ask them to review and confirm, or make changes. Keep it under 8 lines.`,
+  });
+
+  return { aiResponse: summaryText, nextStep: 'confirm_review', draft, kg };
+}
+
+/**
+ * Normal conversational handling for post-draft interactions.
+ */
+async function handleConversational(step, message, kg, msgs) {
+  const systemPrompt = buildSystemPrompt(step, kg);
+
+  const historyForLLM = msgs.slice(-20).map(m => ({
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.text,
+  }));
+
+  const { text: responseText } = await generateText({
+    model: model,
+    system: systemPrompt,
+    messages: historyForLLM,
+  });
+
+  return { aiResponse: responseText, nextStep: step, kg };
+}
+
+/* ══════════════════════════════════════════════════════
+   Main POST handler
+   ══════════════════════════════════════════════════════ */
 export async function POST(request) {
   try {
     const { dbUser } = await requireAuth();
@@ -221,110 +315,129 @@ export async function POST(request) {
     // Restore state
     const meta = convo.agentMeta || {};
     let kg = meta.knowledgeGraph || {};
-    let currentStep = meta.step || reqStep || 'understand_business';
+    let currentStep = meta.step || reqStep || 'extract';
     let msgs = convo.messages || [];
 
     // Add user message
     msgs.push({ role: 'user', text: message, timestamp: Date.now() });
 
-    // Parse user input and merge into knowledge graph
-    const parsed = parseUserInput(message, currentStep);
-    kg = mergeIntoKG(kg, parsed);
-
-    // If user provided company name in first message, extract it
-    if (currentStep === 'understand_business' && !kg.companyName) {
-      // Try to extract company name from first substantial noun phrase
-      kg.businessDescription = message;
-    }
-
-    // Determine if we should advance step
-    const prevStep = currentStep;
-    currentStep = nextStep(currentStep, kg);
-
-    let aiResponse;
+    let aiResponse = '';
     let draft = null;
 
-    // ── Auto-draft step: generate full model via structured output ──
-    if (currentStep === 'auto_draft') {
-      try {
-        // Enrich KG with real industry data from Exa search
-        let enrichmentText = '';
-        try {
-          const enrichment = await searchBusinessContext(kg);
-          if (enrichment && Object.keys(enrichment).length > 0) {
-            kg.webResearch = enrichment;
-            enrichmentText = formatEnrichmentForPrompt(enrichment);
+    try {
+      // ── Route to the correct step handler ──
+      if (currentStep === 'extract') {
+        /* ── STEP 1: Smart extraction ──
+         * If user sent a meta-command like "Try again", find the
+         * last substantive message from history and extract from that.
+         */
+        let extractMessage = message;
+        if (isMetaCommand(message)) {
+          const prev = findLastSubstantiveMessage(msgs);
+          if (prev) {
+            extractMessage = prev;
           }
-        } catch (exaErr) {
-          console.warn('Exa enrichment skipped:', exaErr.message);
         }
 
-        let draftPrompt = `${DRAFT_GENERATION_PROMPT}\n\n## Business Context:\n${JSON.stringify(kg, null, 2)}`;
-        if (enrichmentText) {
-          draftPrompt += `\n\n## Real Industry Data (from web research \u2014 use these to calibrate your numbers):\n${enrichmentText}`;
+        const result = await handleExtract(extractMessage, kg);
+        kg = result.kg;
+
+        if (result.nextStep === 'generate') {
+          // Confidence is high \u2014 skip gap-fill, go straight to generation
+          const { text: ackText } = await generateText({
+            model: model,
+            system: buildSystemPrompt('generate', kg),
+            prompt: `The user described their business: "${extractMessage.substring(0, 500)}"\n\nYou extracted enough info (confidence: ${kg.confidenceScore}). Briefly acknowledge what you understood (2-3 lines max) and say you're now generating their 17-sheet Unit Economics model. Do NOT ask any questions.`,
+          });
+
+          // Generate the full draft
+          const genResult = await handleGenerate(kg);
+          aiResponse = ackText + '\n\n---\n\n' + genResult.aiResponse;
+          draft = genResult.draft;
+          kg = genResult.kg;
+          currentStep = genResult.nextStep;
+        } else {
+          // Need gap-fill
+          const { text: gapText } = await generateText({
+            model: model,
+            system: buildSystemPrompt('fill_gaps', kg),
+            prompt: `You extracted this from the user's message:\n${JSON.stringify({
+              companyName: kg.companyName, businessDescription: kg.businessDescription,
+              productsServices: kg.productsServices, city: kg.city,
+              businessStage: kg.businessStage, confidenceScore: kg.confidenceScore,
+            }, null, 2)}\n\nMissing critical items: ${(kg.missingCritical || []).join(', ')}\nConfidence: ${kg.confidenceScore}\n\nAsk ONE consolidated follow-up (max 3 numbered questions). Be brief.`,
+          });
+          aiResponse = gapText;
+          currentStep = 'fill_gaps';
         }
 
-        const { object } = await generateObject({
-          model: openai(MODEL),
-          schema: UnitEconomicsDraftSchema,
-          prompt: draftPrompt,
-          system: buildSystemPrompt('auto_draft', kg),
-        });
+      } else if (currentStep === 'fill_gaps') {
+        /* ── STEP 2: User answered gap-fill or said "go ahead" ── */
+        const result = await handleFillGaps(message, kg);
+        kg = result.kg;
 
-        draft = object;
+        // Now generate the full draft
+        const genResult = await handleGenerate(kg);
+        aiResponse = genResult.aiResponse;
+        draft = genResult.draft;
+        kg = genResult.kg;
+        currentStep = genResult.nextStep;
 
-        // Merge draft data back into KG
-        kg.draft = draft;
-        kg.companyName = draft.companyName || kg.companyName;
-        kg.industry = draft.industry || kg.industry;
+      } else if (currentStep === 'generate') {
+        /* ── STEP 2.5: Retry generation (if previous generate failed) ── */
+        const genResult = await handleGenerate(kg);
+        aiResponse = genResult.aiResponse;
+        draft = genResult.draft;
+        kg = genResult.kg;
+        currentStep = genResult.nextStep;
 
-        // Generate a summary message
-        const { text: summaryText } = await generateText({
-          model: openai(MODEL),
-          system: buildSystemPrompt('confirm_review', kg),
-          prompt: `You just generated a complete Unit Economics model for "${kg.companyName || 'the business'}". 
-Summarize what was generated:
-- ${draft.employees?.length || 0} team members across ${new Set(draft.employees?.map(e => e.department) || []).size} departments
-- ${draft.products?.length || 0} products/services
-- ${draft.marketingChannels?.length || 0} marketing channels
-- ${draft.adminExpenses?.length || 0} admin expense items
-- ${draft.capexItems?.length || 0} CAPEX items
-- ${draft.loans?.length || 0} loan(s)
-- ${draft.cities?.length || 0} cities for geo pricing
+      } else if (currentStep === 'confirm_review') {
+        const downloadPhrases = ['download', 'looks good', 'generate excel', 'perfect', 'done'];
+        const wantsDownload = downloadPhrases.some(p => message.toLowerCase().includes(p));
 
-Ask them to review and confirm, or make changes.`,
-        });
+        if (wantsDownload) {
+          aiResponse = `Your **17-sheet Unit Economics model** is ready! Click the **Download Excel** button below to get your file.\n\nYou can also continue chatting to adjust any section.\n\n[SUGGESTIONS: ["Download Excel", "Adjust HR costs", "Change margins", "Start new model"]]`;
+          currentStep = 'complete';
+        } else {
+          const convResult = await handleConversational('confirm_review', message, kg, msgs);
+          aiResponse = convResult.aiResponse;
+        }
 
-        aiResponse = summaryText;
-        currentStep = 'confirm_review';
+      } else if (currentStep === 'complete') {
+        const convResult = await handleConversational('complete', message, kg, msgs);
+        aiResponse = convResult.aiResponse;
 
-      } catch (err) {
-        console.error('Draft generation failed:', err);
-        aiResponse = `I encountered an issue generating the full model. Let me try a simpler approach. Could you confirm the key details?\n\n[SUGGESTIONS: ["Try again", "Let me provide more details"]]`;
-        currentStep = prevStep; // Stay on previous step
+      } else {
+        // Unknown step \u2014 fall back to extract
+        currentStep = 'extract';
+        const result = await handleExtract(message, kg);
+        kg = result.kg;
+        if (result.nextStep === 'generate') {
+          const genResult = await handleGenerate(kg);
+          aiResponse = genResult.aiResponse;
+          draft = genResult.draft;
+          kg = genResult.kg;
+          currentStep = genResult.nextStep;
+        } else {
+          const { text: gapText } = await generateText({
+            model: model,
+            system: buildSystemPrompt('fill_gaps', kg),
+            prompt: `Missing: ${(kg.missingCritical || []).join(', ')}\nConfidence: ${kg.confidenceScore}\nAsk ONE consolidated follow-up. Be brief.`,
+          });
+          aiResponse = gapText;
+          currentStep = 'fill_gaps';
+        }
       }
-    } else {
-      // ── Normal conversational step ──
-      const systemPrompt = buildSystemPrompt(currentStep, kg);
+    } catch (stepErr) {
+      console.error(`Step "${currentStep}" failed:`, stepErr);
 
-      // Build message history for context (last 20 messages)
-      const historyForLLM = msgs.slice(-20).map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      }));
-
-      const { text: responseText } = await generateText({
-        model: openai(MODEL),
-        system: systemPrompt,
-        messages: historyForLLM,
-      });
-
-      aiResponse = responseText;
-
-      // Extract any DATA tags from AI response
-      const dataTags = extractDataTags(aiResponse);
-      for (const data of dataTags) {
-        kg = mergeIntoKG(kg, data);
+      // If generation failed, park at 'generate' step so user can retry
+      // without re-doing extraction
+      if (currentStep === 'fill_gaps' || currentStep === 'generate') {
+        currentStep = 'generate';
+        aiResponse = `I\u2019m having trouble generating the full model right now. This can happen with complex models.\n\nLet me try again \u2014 just say **"generate"** or provide any additional details.\n\n[SUGGESTIONS: ["Generate my model", "Let me add more details"]]`;
+      } else {
+        aiResponse = `I encountered an issue. Let me try again \u2014 could you rephrase or provide more details?\n\n**Error:** ${stepErr.message?.substring(0, 150) || 'Unknown error'}\n\n[SUGGESTIONS: ["Try again", "Let me provide more details"]]`;
       }
     }
 
@@ -351,13 +464,42 @@ Ask them to review and confirm, or make changes.`,
     if (currentStep === 'complete') screenPhase = 'complete';
     if (draft) screenPhase = 'review';
 
+    // Build modelState from draft for frontend hydration
+    const modelState = draft ? {
+      businessInfo: {
+        companyName: draft.companyName || kg.companyName || '',
+        businessDescription: kg.businessDescription || '',
+        productsServices: kg.productsServices || '',
+        targetCustomer: kg.targetCustomer || '',
+        city: kg.city || '',
+        businessStage: kg.businessStage || '',
+        teamSize: String(draft.employees?.length || ''),
+        monthlyRevenue: String(kg.monthlyRevenue || ''),
+        investmentAmount: String(kg.investmentAmount || ''),
+        monthlyRent: String(kg.monthlyRent || ''),
+        profitTarget: String(kg.profitTarget || ''),
+        loansBorrowings: String(kg.loansBorrowings || ''),
+      },
+      employees: draft.employees || [],
+      marketingChannels: draft.marketingChannels || [],
+      products: draft.products || [],
+      cities: draft.cities || [],
+      adminExpenses: draft.adminExpenses || [],
+      capexItems: draft.capexItems || [],
+      loans: draft.loans || [],
+      ltvParams: draft.ltvParams || null,
+      scenarios: draft.scenarios || null,
+      profitTargets: draft.profitTargets || null,
+    } : null;
+
     // Save conversation
     await updateConversation(convo.id, dbUser.id, {
       messages: msgs,
+      modelState,
       agentMeta: {
         knowledgeGraph: kg,
         step: currentStep,
-        draft,
+        draft: draft || meta.draft || null,
       },
       stage: currentStep === 'complete' ? 'complete' : 'building',
       completion: completionPct,
@@ -372,6 +514,8 @@ Ask them to review and confirm, or make changes.`,
       sheetNav,
       step: currentStep,
       completion: completionPct,
+      draftData: modelState,
+      rawDraft: draft || null,
       draft: draft ? {
         employeeCount: draft.employees?.length,
         productCount: draft.products?.length,
@@ -382,7 +526,6 @@ Ask them to review and confirm, or make changes.`,
     });
 
   } catch (err) {
-    // Handle auth throws
     if (err instanceof Response) {
       return err;
     }

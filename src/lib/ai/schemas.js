@@ -3,6 +3,13 @@ import { z } from 'zod';
 /**
  * Zod schemas for structured LLM output.
  * Used with Vercel AI SDK's generateObject() to get typed business drafts.
+ *
+ * IMPORTANT: OpenAI structured output (strict mode) requires ALL properties
+ * in every object to be listed in the JSON Schema 'required' array.
+ * This means:
+ *   - NO .optional() fields — use .nullable() instead
+ *   - NO .default() values — the LLM must provide every field explicitly
+ *   - Every nested z.object() must have ALL its keys required
  */
 
 // ── Employee schema ──
@@ -12,7 +19,7 @@ export const EmployeeSchema = z.object({
   department: z.string().describe('Department name'),
   category: z.enum(['management', 'white_collar', 'blue_collar']).describe('Employee category'),
   monthlySalary: z.number().describe('Monthly salary in INR'),
-  count: z.number().default(1).describe('Number of people in this role'),
+  count: z.number().describe('Number of people in this role (minimum 1)'),
 });
 
 // ── Marketing channel schema ──
@@ -33,25 +40,27 @@ export const CostElementSchema = z.object({
 export const ProductSchema = z.object({
   name: z.string().describe('Product/service name'),
   group: z.string().describe('Product group/category'),
-  unit: z.string().default('unit').describe('Unit of measurement'),
+  unit: z.string().describe('Unit of measurement, e.g. "unit", "plate", "hour", "session"'),
   costElements: z.array(CostElementSchema).describe('Bill of materials / cost breakdown'),
   targetMargin: z.number().describe('Target margin %, e.g. 0.40 for 40%'),
   monthlyVolume: z.number().describe('Expected monthly sales volume'),
 });
 
 // ── City/geo pricing schema ──
+export const CityProductPricingSchema = z.object({
+  productName: z.string().describe('Must match a product name from the products array'),
+  purchaseCost: z.number().describe('Purchase/production cost in this city in INR'),
+  salePrice: z.number().describe('Sale price in this city in INR'),
+});
+
 export const CityPricingSchema = z.object({
-  cityName: z.string(),
-  products: z.array(z.object({
-    productName: z.string(),
-    purchaseCost: z.number(),
-    salePrice: z.number(),
-  })),
+  cityName: z.string().describe('City name'),
+  products: z.array(CityProductPricingSchema).describe('Per-product pricing for this city'),
 });
 
 // ── Admin expense schema ──
 export const AdminExpenseSchema = z.object({
-  category: z.enum(['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin']),
+  category: z.enum(['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin']).describe('Expense category'),
   item: z.string().describe('Expense item description'),
   monthlyAmount: z.number().describe('Monthly amount in INR'),
 });
@@ -72,15 +81,58 @@ export const LoanSchema = z.object({
   tenureMonths: z.number().describe('Loan tenure in months'),
 });
 
+/* ════════════════════════════════════════════════════════
+   Smart extraction schema — used on FIRST user message
+   Extracts everything we can from natural language
+   ════════════════════════════════════════════════════════ */
+export const BusinessExtractionSchema = z.object({
+  companyName: z.string().nullable().describe('Company name if mentioned'),
+  businessDescription: z.string().describe('What the business does \u2014 summarize in 1-2 sentences'),
+  productsServices: z.array(z.string()).describe('List of products/services mentioned'),
+  targetCustomer: z.string().nullable().describe('Target customer segment if mentioned'),
+  city: z.string().nullable().describe('City/location if mentioned'),
+  businessStage: z.enum(['idea', 'early', 'growth', 'scale']).nullable().describe('Business stage if mentioned or inferable'),
+  teamInfo: z.string().nullable().describe('Any team/employee info mentioned (roles, count, salaries)'),
+  monthlyRevenue: z.number().nullable().describe('Monthly revenue if mentioned, in INR'),
+  investmentAmount: z.number().nullable().describe('Investment/funding amount if mentioned, in INR'),
+  monthlyRent: z.number().nullable().describe('Monthly rent if mentioned, in INR'),
+  profitTarget: z.number().nullable().describe('Profit target if mentioned, in INR'),
+  loanInfo: z.string().nullable().describe('Any loan/borrowing info mentioned'),
+  costInfo: z.string().nullable().describe('Any cost breakdown info mentioned (salaries, tools, infra)'),
+  confidenceScore: z.number().describe('0-1 score of how much info you have. 0.7+ means enough to generate a model'),
+  missingCritical: z.array(z.string()).describe('List of critical missing items needed before generation (max 3 items)'),
+});
+
+// ── LTV parameters schema ──
+export const LtvParamsSchema = z.object({
+  avgOrderValue: z.number().describe('Average order value in INR'),
+  purchaseFrequency: z.number().describe('Times per year a customer purchases'),
+  retentionRate: z.number().describe('Annual retention rate, e.g. 0.7 for 70%'),
+  grossMargin: z.number().describe('Gross margin rate, e.g. 0.4 for 40%'),
+  discountRate: z.number().describe('Discount rate for LTV calculation, e.g. 0.1 for 10%'),
+});
+
+// ── Assumptions schema ──
+export const AssumptionsSchema = z.object({
+  workingDaysPerMonth: z.number().describe('Working days per month, typically 26'),
+  hoursPerDay: z.number().describe('Working hours per day, typically 8'),
+  employeeEfficiency: z.number().describe('Employee efficiency rate, e.g. 0.8 for 80%'),
+  taxRate: z.number().describe('Tax rate, e.g. 0.25 for 25%'),
+  inflationRate: z.number().describe('Annual inflation rate, e.g. 0.06 for 6%'),
+  monthlyRevenueGrowth: z.number().describe('Month-over-month revenue growth rate, e.g. 0.05 for 5%'),
+  capacityUtilization: z.number().describe('Capacity utilization rate, e.g. 0.7 for 70%'),
+});
+
 // ── Full business draft schema (what the LLM generates) ──
 export const UnitEconomicsDraftSchema = z.object({
-  companyName: z.string(),
-  industry: z.string(),
-  businessStage: z.enum(['idea', 'early', 'growth', 'scale']),
+  companyName: z.string().describe('Company/business name'),
+  industry: z.string().describe('Industry/sector'),
+  businessStage: z.enum(['idea', 'early', 'growth', 'scale']).describe('Business stage'),
+  investmentAmount: z.number().describe('Total investment/seed capital in INR (0 if not applicable)'),
 
   employees: z.array(EmployeeSchema).describe('Full team structure'),
 
-  marketingChannels: z.array(MarketingChannelSchema).describe('Marketing plan \u2014 AI generated based on business stage'),
+  marketingChannels: z.array(MarketingChannelSchema).describe('Marketing plan \u2014 AI generated based on business stage and industry'),
 
   products: z.array(ProductSchema).describe('Products/services with cost breakdown and target margins'),
 
@@ -90,38 +142,27 @@ export const UnitEconomicsDraftSchema = z.object({
 
   capexItems: z.array(CapexItemSchema).describe('Capital expenditure items'),
 
-  loans: z.array(LoanSchema).describe('Loan/financing structure'),
+  loans: z.array(LoanSchema).describe('Loan/financing structure (empty array if no loans)'),
 
-  ltvParams: z.object({
-    avgOrderValue: z.number(),
-    purchaseFrequency: z.number().describe('Times per year'),
-    retentionRate: z.number().describe('Annual retention rate, e.g. 0.7'),
-    grossMargin: z.number(),
-    discountRate: z.number().default(0.1),
-  }).describe('Customer LTV parameters'),
+  ltvParams: LtvParamsSchema.describe('Customer LTV parameters'),
 
-  assumptions: z.object({
-    workingDaysPerMonth: z.number().default(26),
-    hoursPerDay: z.number().default(8),
-    employeeEfficiency: z.number().default(0.8),
-    taxRate: z.number().default(0.25),
-    inflationRate: z.number().default(0.06),
-  }),
+  assumptions: AssumptionsSchema.describe('Business assumptions for the model'),
 });
 
 /**
- * Lighter schema for confirming/editing individual sections
+ * Lighter schemas for confirming/editing individual sections.
+ * Note: 'changes' uses .nullable() instead of .optional() for OpenAI compatibility.
  */
 export const HRConfirmSchema = z.object({
   employees: z.array(EmployeeSchema),
   confirmed: z.boolean(),
-  changes: z.string().optional().describe('Description of changes made'),
+  changes: z.string().nullable().describe('Description of changes made, or null if none'),
 });
 
 export const ProductConfirmSchema = z.object({
   products: z.array(ProductSchema),
   confirmed: z.boolean(),
-  changes: z.string().optional(),
+  changes: z.string().nullable().describe('Description of changes made, or null if none'),
 });
 
 export const CostConfirmSchema = z.object({
@@ -129,5 +170,5 @@ export const CostConfirmSchema = z.object({
   capexItems: z.array(CapexItemSchema),
   loans: z.array(LoanSchema),
   confirmed: z.boolean(),
-  changes: z.string().optional(),
+  changes: z.string().nullable().describe('Description of changes made, or null if none'),
 });

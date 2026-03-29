@@ -1,407 +1,584 @@
 'use client';
 
 import { useUnitEconomics } from '@/context/UnitEconomicsContext';
-import { FileSpreadsheet, ChevronRight } from 'lucide-react';
+import { BarChart3, TrendingUp, Wallet, Users, Target, Layers } from 'lucide-react';
 
-/**
- * SheetViewer — Right side of the split layout.
- * Shows a tab bar of all 17 sheets and displays sheet content
- * from the context state (not from the Excel file — Excel is write-only output).
- */
+/* ════════════════════════════════════════════════════════
+   Theme constants — mirrors Fina AI's semantic color system
+   ════════════════════════════════════════════════════════ */
+const T = {
+  navy:      '#1B2A4A',
+  navyLight: '#2D4373',
+  teal:      '#0F766E',
+  tealLight: '#14B8A6',
+  green:     '#15803D',
+  greenLight:'#22C55E',
+  red:       '#E53935',
+  gold:      '#D97706',
+  purple:    '#7C3AED',
+  // Backgrounds
+  bg0: '#F8FAFC', bg1: '#FFFFFF', bg2: '#F1F5F9', bg3: '#E2E8F0',
+  // Text
+  t0: '#0F172A', t1: '#334155', t2: '#64748B', t3: '#94A3B8',
+  // Excel
+  header: '#1F4E79', input: '#C6EFCE', formula: '#BDD7EE', link: '#D6E4F0', total: '#D9E2F3',
+  // Shadows
+  card: '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)',
+  cardHover: '0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)',
+};
+
+/* ════════════════════════════════════════════════════════
+   Sheet tab config — group by Input vs Output
+   ════════════════════════════════════════════════════════ */
+const INPUT_SHEETS = [
+  'Instructions & Guide',
+  '1. HR Costs', '1.1 Rate Card',
+  '2. Marketing Costs',
+  '3. Manufacturing Costs',
+  '3A. Geo Purchase Costs', '3B. Geo Sale Prices', '3C. Geo Selector',
+  '3D. Admin & Other Expenses', '3E. Capital Expenses (CAPEX)', '3F. Finance Costs',
+];
+const OUTPUT_SHEETS = [
+  '4. Product Market Mix', '5. Customer LTV Analysis',
+  '6. Target Profit Calculator', '7. Cash Flow',
+  '8. KPI Dashboard', '9. Scenario Analysis',
+];
+
 export default function SheetViewer() {
   const {
-    activeSheet, setActiveSheet,
-    flashingSheet,
-    SHEET_NAMES,
-    businessInfo,
-    employees,
-    marketingChannels,
-    products,
-    adminExpenses,
-    capexItems,
-    loans,
-    ltvParams,
-    scenarios,
-    cities,
-    completion,
+    activeSheet, setActiveSheet, flashingSheet, SHEET_NAMES,
+    businessInfo, employees, marketingChannels, products,
+    adminExpenses, capexItems, loans, ltvParams, scenarios,
+    cities, selectedCity, profitTargets, completion,
   } = useUnitEconomics();
 
+  const data = { businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities, selectedCity, profitTargets };
+
   return (
-    <div className="flex flex-col h-full bg-slate-50">
-      {/* Sheet tabs */}
-      <div className="flex overflow-x-auto bg-white border-b border-slate-200 excel-scroll">
-        {SHEET_NAMES.map((name) => (
-          <button
-            key={name}
-            onClick={() => setActiveSheet(name)}
-            className={`flex-shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeSheet === name
-                ? 'border-navy text-navy bg-blue-50/50'
-                : flashingSheet === name
-                  ? 'border-green-500 text-green-700 bg-green-50 cell-flash'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            {name}
-          </button>
+    <div className="flex flex-col h-full w-full bg-[var(--bg-page)]">
+      {/* ── Tab bar ── */}
+      <div className="flex items-center gap-1 overflow-x-auto px-3 py-2 bg-white border-b border-[var(--border)] excel-scroll flex-shrink-0">
+        {/* Input group label */}
+        <span className="flex-shrink-0 px-2 py-0.5 mr-1 rounded text-[9px] font-bold uppercase tracking-[0.06em]"
+          style={{ background: `${T.navy}0D`, color: T.navy }}>
+          Inputs
+        </span>
+        {INPUT_SHEETS.map(name => (
+          <TabBtn key={name} name={name} active={activeSheet === name} flash={flashingSheet === name} onClick={() => setActiveSheet(name)} />
+        ))}
+        {/* Divider */}
+        <div className="flex-shrink-0 w-px h-5 bg-[var(--border)] mx-1" />
+        {/* Output group label */}
+        <span className="flex-shrink-0 px-2 py-0.5 mr-1 rounded text-[9px] font-bold uppercase tracking-[0.06em]"
+          style={{ background: `${T.teal}0D`, color: T.teal }}>
+          Outputs
+        </span>
+        {OUTPUT_SHEETS.map(name => (
+          <TabBtn key={name} name={name} active={activeSheet === name} flash={flashingSheet === name} onClick={() => setActiveSheet(name)} color={T.teal} />
         ))}
       </div>
 
-      {/* Sheet content */}
-      <div className="flex-1 overflow-auto p-4 excel-scroll">
-        {completion < 60 ? (
-          <EmptyState />
-        ) : (
-          <SheetContent
-            sheetName={activeSheet}
-            data={{ businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities }}
-          />
-        )}
+      {/* ── Sheet content ── */}
+      <div className="flex-1 overflow-auto p-5 excel-scroll">
+        {completion < 60 ? <EmptyState /> : <SheetContent sheetName={activeSheet} data={data} />}
       </div>
     </div>
   );
 }
 
+/* ── Tab button ── */
+function TabBtn({ name, active, flash, onClick, color = T.navy }) {
+  const short = name.replace(/^\d+[A-F]?\.\s*/, '').replace('(CAPEX)', 'CAPEX');
+  return (
+    <button
+      onClick={onClick}
+      className="flex-shrink-0 px-2.5 py-1.5 text-[11px] font-medium rounded-lg whitespace-nowrap transition-all"
+      style={{
+        background: active ? color : flash ? '#F0FDF4' : 'transparent',
+        color: active ? '#fff' : flash ? T.green : T.t2,
+        boxShadow: active ? `0 2px 6px ${color}35` : 'none',
+      }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.background = T.bg2; } }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.background = flash ? '#F0FDF4' : 'transparent'; } }}
+    >
+      {short}
+    </button>
+  );
+}
+
+/* ── Empty state ── */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
-      <FileSpreadsheet className="w-16 h-16 mb-4 opacity-30" />
-      <p className="text-sm font-medium mb-1">Your model will appear here</p>
-      <p className="text-xs">Complete the chat to see your 17-sheet Unit Economics model</p>
+    <div className="flex flex-col items-center justify-center h-full text-center">
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+        style={{ background: `linear-gradient(135deg, ${T.navy}10, ${T.navy}05)` }}>
+        <BarChart3 className="w-7 h-7" style={{ color: T.navy, opacity: 0.3 }} />
+      </div>
+      <p className="text-[14px] font-semibold" style={{ color: T.t1 }}>Your model will appear here</p>
+      <p className="text-[12px] mt-1" style={{ color: T.t3 }}>Complete the chat to see your 17-sheet Unit Economics model</p>
     </div>
   );
 }
 
+/* ── Sheet router ── */
 function SheetContent({ sheetName, data }) {
-  switch (sheetName) {
-    case 'Instructions & Guide':
-      return <InstructionsView data={data} />;
-    case '1. HR Costs':
-      return <HRView employees={data.employees} />;
-    case '1.1 Rate Card':
-      return <RateCardView employees={data.employees} />;
-    case '2. Marketing Costs':
-      return <MarketingView channels={data.marketingChannels} />;
-    case '3. Manufacturing Costs':
-      return <ManufacturingView products={data.products} />;
-    case '3D. Admin & Other Expenses':
-      return <AdminView expenses={data.adminExpenses} />;
-    case '3E. Capital Expenses (CAPEX)':
-      return <CapexView items={data.capexItems} />;
-    case '3F. Finance Costs':
-      return <FinanceView loans={data.loans} />;
-    case '4. Product Market Mix':
-      return <ProductMixView products={data.products} />;
-    case '5. Customer LTV Analysis':
-      return <LTVView params={data.ltvParams} />;
-    case '9. Scenario Analysis':
-      return <ScenarioView scenarios={data.scenarios} />;
-    default:
-      return (
-        <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-          Sheet preview for "{sheetName}" will be available in the Excel download.
-        </div>
-      );
-  }
+  const views = {
+    'Instructions & Guide': () => <InstructionsView data={data} />,
+    '1. HR Costs': () => <HRView employees={data.employees} />,
+    '1.1 Rate Card': () => <RateCardView employees={data.employees} />,
+    '2. Marketing Costs': () => <MarketingView channels={data.marketingChannels} />,
+    '3. Manufacturing Costs': () => <ManufacturingView products={data.products} />,
+    '3A. Geo Purchase Costs': () => <GeoPurchaseView cities={data.cities} />,
+    '3B. Geo Sale Prices': () => <GeoSalePriceView cities={data.cities} />,
+    '3C. Geo Selector': () => <GeoSelectorView cities={data.cities} selectedCity={data.selectedCity} products={data.products} />,
+    '3D. Admin & Other Expenses': () => <AdminView expenses={data.adminExpenses} />,
+    '3E. Capital Expenses (CAPEX)': () => <CapexView items={data.capexItems} />,
+    '3F. Finance Costs': () => <FinanceView loans={data.loans} />,
+    '4. Product Market Mix': () => <ProductMixView products={data.products} />,
+    '5. Customer LTV Analysis': () => <LTVView params={data.ltvParams} />,
+    '6. Target Profit Calculator': () => <TargetProfitView products={data.products} profitTargets={data.profitTargets} employees={data.employees} adminExpenses={data.adminExpenses} />,
+    '7. Cash Flow': () => <CashFlowView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} adminExpenses={data.adminExpenses} loans={data.loans} />,
+    '8. KPI Dashboard': () => <KPIDashboardView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} ltvParams={data.ltvParams} />,
+    '9. Scenario Analysis': () => <ScenarioView scenarios={data.scenarios} />,
+  };
+  const View = views[sheetName];
+  return View ? <View /> : <EmptySheet label={sheetName} />;
 }
 
-/* ── Sub-views for each sheet ── */
+/* ════════════════════════════════════════════════════════
+   Shared components
+   ════════════════════════════════════════════════════════ */
 
-function InstructionsView({ data }) {
+/** Section card with left accent bar */
+function SectionCard({ title, subtitle, accentColor = T.navy, children }) {
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-bold text-navy">{data.businessInfo?.companyName || 'Your Company'} — Unit Economics Model</h3>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <InfoCard label="Company" value={data.businessInfo?.companyName || '—'} />
-        <InfoCard label="Stage" value={data.businessInfo?.businessStage || '—'} />
-        <InfoCard label="City" value={data.businessInfo?.city || '—'} />
-        <InfoCard label="Team" value={data.employees?.length ? `${data.employees.length} roles` : '—'} />
-        <InfoCard label="Products" value={data.products?.length ? `${data.products.length} items` : '—'} />
-        <InfoCard label="Marketing" value={data.marketingChannels?.length ? `${data.marketingChannels.length} channels` : '—'} />
+    <div className="rounded-xl overflow-hidden slide-up" style={{ background: T.bg1, boxShadow: T.card, border: `1px solid ${T.bg3}` }}>
+      <div className="relative px-5 py-3 border-b" style={{ borderColor: T.bg3 }}>
+        <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r" style={{ background: `linear-gradient(180deg, ${accentColor}, ${accentColor}80)` }} />
+        <h3 className="text-[14px] font-bold tracking-[-0.02em]" style={{ color: T.t0 }}>{title}</h3>
+        {subtitle && <p className="text-[11px] mt-0.5" style={{ color: T.t3 }}>{subtitle}</p>}
+      </div>
+      <div className="px-5 py-4">{children}</div>
+    </div>
+  );
+}
+
+/** Data table with header and hover rows */
+function DataTable({ headers, children, footer }) {
+  return (
+    <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.bg3}` }}>
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr style={{ background: `linear-gradient(135deg, ${T.header}, ${T.header}E0)` }}>
+            {headers.map((h, i) => (
+              <th key={i} className={`px-3 py-2.5 text-white font-semibold text-[11px] uppercase tracking-[0.04em] ${h.align === 'right' ? 'text-right' : 'text-left'}`}>
+                {h.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+        {footer && <tfoot>{footer}</tfoot>}
+      </table>
+    </div>
+  );
+}
+
+/** Stat card */
+function StatCard({ label, value, accent, icon: Icon }) {
+  return (
+    <div className="rounded-lg p-3.5 hover-lift" style={{ background: T.bg1, boxShadow: T.card, border: `1px solid ${T.bg3}` }}>
+      <div className="relative" style={{ paddingLeft: Icon ? '0' : '0' }}>
+        {accent && <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded" style={{ background: accent }} />}
+        <div className="text-[10px] font-semibold uppercase tracking-[0.05em]" style={{ color: T.t3, paddingLeft: accent ? '8px' : '0' }}>{label}</div>
+        <div className="text-[15px] font-bold font-num mt-0.5" style={{ color: T.t0, paddingLeft: accent ? '8px' : '0' }}>{value}</div>
       </div>
     </div>
   );
 }
 
-function InfoCard({ label, value }) {
+/** Table cell helpers */
+function InputCell({ children, align = 'right' }) {
+  return <td className={`px-3 py-2 font-num text-${align}`} style={{ background: `${T.input}40`, color: '#0000FF' }}>{children}</td>;
+}
+function FormulaCell({ children, align = 'right' }) {
+  return <td className={`px-3 py-2 font-num text-${align}`} style={{ background: `${T.formula}40`, color: T.t0 }}>{children}</td>;
+}
+function LinkCell({ children, align = 'right' }) {
+  return <td className={`px-3 py-2 font-num text-${align}`} style={{ background: `${T.link}60`, color: T.t0 }}>{children}</td>;
+}
+function PlainCell({ children, align = 'left', bold = false }) {
+  return <td className={`px-3 py-2 text-${align} ${bold ? 'font-semibold' : ''}`} style={{ color: T.t1 }}>{children}</td>;
+}
+
+function EmptySheet({ label }) {
   return (
-    <div className="p-3 bg-white rounded-lg border border-slate-200">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-sm font-medium text-slate-800">{value}</div>
+    <div className="flex items-center justify-center h-32 text-[12px]" style={{ color: T.t3 }}>
+      No {label} data yet. Complete the chat to populate this sheet.
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════
+   Sheet views
+   ════════════════════════════════════════════════════════ */
+
+function InstructionsView({ data }) {
+  const info = data.businessInfo || {};
+  const stats = [
+    { label: 'Company', value: info.companyName || '\u2014' },
+    { label: 'Stage', value: info.businessStage || '\u2014' },
+    { label: 'City', value: info.city || '\u2014' },
+    { label: 'Team', value: data.employees?.length ? `${data.employees.length} roles` : '\u2014' },
+    { label: 'Products', value: data.products?.length ? `${data.products.length} items` : '\u2014' },
+    { label: 'Marketing', value: data.marketingChannels?.length ? `${data.marketingChannels.length} channels` : '\u2014' },
+  ];
+  const legend = [
+    { bg: T.input, label: 'Input cells (editable)', textColor: '#0000FF' },
+    { bg: T.formula, label: 'Formula cells (auto-calculated)', textColor: T.t0 },
+    { bg: T.header, label: 'Headers', textColor: '#fff' },
+    { bg: T.link, label: 'Cross-sheet linked cells', textColor: T.t0 },
+  ];
+  return (
+    <div className="space-y-5">
+      <SectionCard title={`${info.companyName || 'Your Company'} \u2014 Unit Flow by OnEasy`} subtitle="17-sheet financial model" accentColor={T.navy}>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+          {stats.map((s, i) => <StatCard key={i} label={s.label} value={s.value} />)}
+        </div>
+      </SectionCard>
+      <SectionCard title="Color Coding Legend" subtitle="How to read your Excel model" accentColor={T.gold}>
+        <div className="grid grid-cols-2 gap-2.5">
+          {legend.map((l, i) => (
+            <div key={i} className="flex items-center gap-2.5">
+              <div className="w-8 h-5 rounded flex-shrink-0" style={{ background: l.bg, border: `1px solid ${T.bg3}` }} />
+              <span className="text-[11px]" style={{ color: l.textColor === '#fff' ? T.t1 : l.textColor }}>{l.label}</span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
     </div>
   );
 }
 
 function HRView({ employees }) {
   if (!employees?.length) return <EmptySheet label="HR Costs" />;
+  const headers = [
+    { label: '#' }, { label: 'Role' }, { label: 'Department' }, { label: 'Category' },
+    { label: 'Count', align: 'right' }, { label: 'Monthly Salary', align: 'right' }, { label: 'Monthly Total', align: 'right' },
+  ];
+  const totalCount = employees.reduce((s, e) => s + (e.count || 1), 0);
+  const totalCost = employees.reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">#</th>
-            <th className="px-3 py-2 text-left">Role</th>
-            <th className="px-3 py-2 text-left">Department</th>
-            <th className="px-3 py-2 text-left">Category</th>
-            <th className="px-3 py-2 text-right">Count</th>
-            <th className="px-3 py-2 text-right">Monthly Salary</th>
-            <th className="px-3 py-2 text-right">Monthly Total</th>
+    <SectionCard title="HR Costs" subtitle={`${employees.length} roles, ${totalCount} people`} accentColor={T.purple}>
+      <DataTable headers={headers} footer={
+        <tr style={{ background: T.total }}>
+          <td colSpan={4} className="px-3 py-2.5 text-[12px] font-bold" style={{ color: T.t0 }}>TOTAL</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{totalCount}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalCost)}</td>
+        </tr>
+      }>
+        {employees.map((emp, i) => (
+          <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+            <PlainCell>{i + 1}</PlainCell>
+            <PlainCell bold>{emp.name}</PlainCell>
+            <PlainCell>{emp.department}</PlainCell>
+            <PlainCell>{(emp.category || '').replace('_', ' ')}</PlainCell>
+            <InputCell>{emp.count || 1}</InputCell>
+            <InputCell>{fmt(emp.monthlySalary)}</InputCell>
+            <FormulaCell>{fmt((emp.count || 1) * emp.monthlySalary)}</FormulaCell>
           </tr>
-        </thead>
-        <tbody>
-          {employees.map((emp, i) => (
-            <tr key={i} className="border-b border-slate-100 hover:bg-blue-50/30">
-              <td className="px-3 py-1.5">{i + 1}</td>
-              <td className="px-3 py-1.5 font-medium">{emp.name}</td>
-              <td className="px-3 py-1.5">{emp.department}</td>
-              <td className="px-3 py-1.5 capitalize">{emp.category?.replace('_', ' ')}</td>
-              <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{emp.count || 1}</td>
-              <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{fmt(emp.monthlySalary)}</td>
-              <td className="px-3 py-1.5 text-right bg-blue-50">{fmt((emp.count || 1) * emp.monthlySalary)}</td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="bg-[#D9E2F3] font-bold">
-            <td colSpan={4} className="px-3 py-2">TOTAL</td>
-            <td className="px-3 py-2 text-right">{employees.reduce((s, e) => s + (e.count || 1), 0)}</td>
-            <td className="px-3 py-2 text-right">—</td>
-            <td className="px-3 py-2 text-right">{fmt(employees.reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0))}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+        ))}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function RateCardView({ employees }) {
   if (!employees?.length) return <EmptySheet label="Rate Card" />;
   const wd = 26, hd = 8, eff = 0.8;
+  const headers = [
+    { label: 'Role' }, { label: 'Monthly Salary', align: 'right' },
+    { label: 'Cost/Hour', align: 'right' }, { label: 'Cost/Day', align: 'right' },
+  ];
   return (
-    <div className="overflow-x-auto">
-      <div className="text-xs text-slate-500 mb-2">Working Days: {wd} | Hours/Day: {hd} | Efficiency: {eff * 100}%</div>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Role</th>
-            <th className="px-3 py-2 text-right">Monthly Salary</th>
-            <th className="px-3 py-2 text-right">Cost/Hour</th>
-            <th className="px-3 py-2 text-right">Cost/Day</th>
-          </tr>
-        </thead>
-        <tbody>
-          {employees.map((emp, i) => {
-            const hourly = emp.monthlySalary / (wd * hd * eff);
-            return (
-              <tr key={i} className="border-b border-slate-100">
-                <td className="px-3 py-1.5">{emp.name}</td>
-                <td className="px-3 py-1.5 text-right bg-[#D6E4F0]">{fmt(emp.monthlySalary)}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(hourly)}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(hourly * hd)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <SectionCard title="Rate Card" subtitle={`Working Days: ${wd} | Hours/Day: ${hd} | Efficiency: ${eff * 100}%`} accentColor={T.teal}>
+      <DataTable headers={headers}>
+        {employees.map((emp, i) => {
+          const hourly = emp.monthlySalary / (wd * hd * eff);
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{emp.name}</PlainCell>
+              <LinkCell>{fmt(emp.monthlySalary)}</LinkCell>
+              <FormulaCell>{fmt(hourly)}</FormulaCell>
+              <FormulaCell>{fmt(hourly * hd)}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function MarketingView({ channels }) {
   if (!channels?.length) return <EmptySheet label="Marketing Costs" />;
+  const headers = [
+    { label: 'Channel' }, { label: 'Monthly Budget', align: 'right' }, { label: 'Leads', align: 'right' },
+    { label: 'Conv %', align: 'right' }, { label: 'Customers', align: 'right' }, { label: 'CAC', align: 'right' },
+  ];
+  const totalBudget = channels.reduce((s, c) => s + c.monthlyBudget, 0);
+  const totalLeads = channels.reduce((s, c) => s + c.expectedLeads, 0);
+  const totalCust = channels.reduce((s, c) => s + c.expectedLeads * c.conversionRate, 0);
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Channel</th>
-            <th className="px-3 py-2 text-right">Monthly Budget</th>
-            <th className="px-3 py-2 text-right">Leads</th>
-            <th className="px-3 py-2 text-right">Conv %</th>
-            <th className="px-3 py-2 text-right">Customers</th>
-            <th className="px-3 py-2 text-right">CAC</th>
-          </tr>
-        </thead>
-        <tbody>
-          {channels.map((ch, i) => {
-            const customers = ch.expectedLeads * ch.conversionRate;
-            const cac = customers > 0 ? ch.monthlyBudget / customers : 0;
-            return (
-              <tr key={i} className="border-b border-slate-100">
-                <td className="px-3 py-1.5">{ch.channel}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{fmt(ch.monthlyBudget)}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{ch.expectedLeads}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{(ch.conversionRate * 100).toFixed(1)}%</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{Math.round(customers)}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(cac)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <SectionCard title="Marketing Costs" subtitle={`${channels.length} channels \u2014 AI generated`} accentColor={T.red}>
+      <DataTable headers={headers} footer={
+        <tr style={{ background: T.total }}>
+          <td className="px-3 py-2.5 font-bold text-[12px]" style={{ color: T.t0 }}>TOTAL</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalBudget)}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{totalLeads}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{Math.round(totalCust)}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+        </tr>
+      }>
+        {channels.map((ch, i) => {
+          const cust = ch.expectedLeads * ch.conversionRate;
+          const cac = cust > 0 ? ch.monthlyBudget / cust : 0;
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{ch.channel}</PlainCell>
+              <InputCell>{fmt(ch.monthlyBudget)}</InputCell>
+              <InputCell>{ch.expectedLeads}</InputCell>
+              <InputCell>{(ch.conversionRate * 100).toFixed(1)}%</InputCell>
+              <FormulaCell>{Math.round(cust)}</FormulaCell>
+              <FormulaCell>{fmt(cac)}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function ManufacturingView({ products }) {
   if (!products?.length) return <EmptySheet label="Manufacturing Costs" />;
+  const headers = [
+    { label: 'Product' }, { label: 'Group' }, { label: 'Total Cost', align: 'right' },
+    { label: 'Margin', align: 'right' }, { label: 'Sale Price', align: 'right' }, { label: 'Monthly Vol', align: 'right' },
+  ];
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Product</th>
-            <th className="px-3 py-2 text-left">Group</th>
-            <th className="px-3 py-2 text-right">Total Cost</th>
-            <th className="px-3 py-2 text-right">Margin</th>
-            <th className="px-3 py-2 text-right">Sale Price</th>
-            <th className="px-3 py-2 text-right">Monthly Vol</th>
+    <SectionCard title="Manufacturing Costs" subtitle="Bill of materials & cost breakdown" accentColor={T.gold}>
+      <DataTable headers={headers}>
+        {products.map((p, i) => {
+          const tc = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
+          const sp = tc / (1 - (p.targetMargin || 0.35));
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{p.name}</PlainCell>
+              <PlainCell>{p.group}</PlainCell>
+              <FormulaCell>{fmt(tc)}</FormulaCell>
+              <InputCell>{((p.targetMargin || 0.35) * 100).toFixed(0)}%</InputCell>
+              <FormulaCell>{fmt(sp)}</FormulaCell>
+              <InputCell>{p.monthlyVolume || 0}</InputCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+    </SectionCard>
+  );
+}
+
+function GeoPurchaseView({ cities }) {
+  if (!cities?.length) return <EmptySheet label="Geo Purchase Costs" />;
+  const pNames = cities[0]?.products?.map(p => p.productName) || [];
+  const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
+  return (
+    <SectionCard title="Geo Purchase Costs" subtitle="Purchase costs by city" accentColor={T.gold}>
+      <DataTable headers={headers}>
+        {cities.map((city, i) => (
+          <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+            <PlainCell bold>{city.cityName}</PlainCell>
+            {(city.products || []).map((p, j) => <InputCell key={j}>{fmt(p.purchaseCost)}</InputCell>)}
           </tr>
-        </thead>
-        <tbody>
-          {products.map((p, i) => {
-            const totalCost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
-            const sp = totalCost / (1 - (p.targetMargin || 0.35));
-            return (
-              <tr key={i} className="border-b border-slate-100">
-                <td className="px-3 py-1.5 font-medium">{p.name}</td>
-                <td className="px-3 py-1.5">{p.group}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(totalCost)}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(sp)}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{p.monthlyVolume || 0}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </DataTable>
+    </SectionCard>
+  );
+}
+
+function GeoSalePriceView({ cities }) {
+  if (!cities?.length) return <EmptySheet label="Geo Sale Prices" />;
+  const pNames = cities[0]?.products?.map(p => p.productName) || [];
+  const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
+  return (
+    <SectionCard title="Geo Sale Prices" subtitle="Margin-first pricing by city" accentColor={T.green}>
+      <DataTable headers={headers}>
+        {cities.map((city, i) => (
+          <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+            <PlainCell bold>{city.cityName}</PlainCell>
+            {(city.products || []).map((p, j) => <InputCell key={j}>{fmt(p.salePrice)}</InputCell>)}
+          </tr>
+        ))}
+      </DataTable>
+    </SectionCard>
+  );
+}
+
+function GeoSelectorView({ cities, selectedCity, products }) {
+  if (!cities?.length) return <EmptySheet label="Geo Selector" />;
+  const activeCity = cities.find(c => c.cityName === selectedCity) || cities[0];
+  const headers = [
+    { label: 'Product' }, { label: 'Purchase Cost', align: 'right' }, { label: 'Sale Price', align: 'right' },
+    { label: 'Margin', align: 'right' }, { label: 'Monthly Revenue', align: 'right' },
+  ];
+  return (
+    <SectionCard title="Geo Selector" subtitle={`Selected city: ${activeCity?.cityName || '\u2014'}`} accentColor={T.tealLight}>
+      <DataTable headers={headers}>
+        {(activeCity?.products || []).map((cp, i) => {
+          const margin = cp.salePrice > 0 ? (cp.salePrice - cp.purchaseCost) / cp.salePrice : 0;
+          const vol = products?.find(p => p.name === cp.productName)?.monthlyVolume || 0;
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{cp.productName}</PlainCell>
+              <LinkCell>{fmt(cp.purchaseCost)}</LinkCell>
+              <LinkCell>{fmt(cp.salePrice)}</LinkCell>
+              <FormulaCell>{(margin * 100).toFixed(1)}%</FormulaCell>
+              <FormulaCell>{fmt(cp.salePrice * vol)}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function AdminView({ expenses }) {
   if (!expenses?.length) return <EmptySheet label="Admin Expenses" />;
   const categories = [...new Set(expenses.map(e => e.category))];
+  const total = expenses.reduce((s, e) => s + e.monthlyAmount, 0);
   return (
-    <div className="space-y-3">
-      {categories.map(cat => (
-        <div key={cat}>
-          <h4 className="text-xs font-semibold text-navy bg-[#D9E2F3] px-3 py-1.5 rounded-t">{cat}</h4>
-          <table className="w-full text-xs">
-            <tbody>
-              {expenses.filter(e => e.category === cat).map((exp, i) => (
-                <tr key={i} className="border-b border-slate-100">
-                  <td className="px-3 py-1.5">{exp.item}</td>
-                  <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50 w-32">{fmt(exp.monthlyAmount)}</td>
-                  <td className="px-3 py-1.5 text-right bg-blue-50 w-32">{fmt(exp.monthlyAmount * 12)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <SectionCard title="Admin & Other Expenses" subtitle={`${expenses.length} items across ${categories.length} categories`} accentColor={T.red}>
+      <div className="space-y-3">
+        {categories.map(cat => (
+          <div key={cat}>
+            <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] rounded-t" style={{ background: T.total, color: T.navy }}>
+              {cat}
+            </div>
+            <div className="rounded-b" style={{ border: `1px solid ${T.bg3}`, borderTop: 'none' }}>
+              <table className="w-full text-[12px]">
+                <tbody>
+                  {expenses.filter(e => e.category === cat).map((exp, i) => (
+                    <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+                      <PlainCell>{exp.item}</PlainCell>
+                      <InputCell>{fmt(exp.monthlyAmount)}</InputCell>
+                      <FormulaCell>{fmt(exp.monthlyAmount * 12)}</FormulaCell>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        <div className="flex justify-between items-center px-4 py-2.5 rounded-lg font-bold text-[12px]" style={{ background: T.total, color: T.t0 }}>
+          <span>TOTAL ADMIN EXPENSES</span>
+          <span className="font-num">{fmt(total)}/mo</span>
         </div>
-      ))}
-    </div>
+      </div>
+    </SectionCard>
   );
 }
 
 function CapexView({ items }) {
   if (!items?.length) return <EmptySheet label="CAPEX" />;
+  const headers = [
+    { label: 'Category' }, { label: 'Asset' }, { label: 'Cost', align: 'right' },
+    { label: 'Life (Yrs)', align: 'right' }, { label: 'Annual Dep', align: 'right' }, { label: 'Monthly Dep', align: 'right' },
+  ];
+  const totalCost = items.reduce((s, it) => s + it.cost, 0);
+  const totalAnnDep = items.reduce((s, it) => s + it.cost / it.usefulLife, 0);
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Category</th>
-            <th className="px-3 py-2 text-left">Asset</th>
-            <th className="px-3 py-2 text-right">Cost</th>
-            <th className="px-3 py-2 text-right">Life (Yrs)</th>
-            <th className="px-3 py-2 text-right">Annual Dep</th>
+    <SectionCard title="Capital Expenses (CAPEX)" subtitle="Assets & depreciation" accentColor={T.purple}>
+      <DataTable headers={headers} footer={
+        <tr style={{ background: T.total }}>
+          <td colSpan={2} className="px-3 py-2.5 font-bold text-[12px]" style={{ color: T.t0 }}>TOTAL</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalCost)}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalAnnDep)}</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalAnnDep / 12)}</td>
+        </tr>
+      }>
+        {items.map((it, i) => (
+          <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+            <PlainCell>{it.category}</PlainCell>
+            <PlainCell bold>{it.item}</PlainCell>
+            <InputCell>{fmt(it.cost)}</InputCell>
+            <InputCell>{it.usefulLife}</InputCell>
+            <FormulaCell>{fmt(it.cost / it.usefulLife)}</FormulaCell>
+            <FormulaCell>{fmt(it.cost / it.usefulLife / 12)}</FormulaCell>
           </tr>
-        </thead>
-        <tbody>
-          {items.map((item, i) => (
-            <tr key={i} className="border-b border-slate-100">
-              <td className="px-3 py-1.5">{item.category}</td>
-              <td className="px-3 py-1.5">{item.item}</td>
-              <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{fmt(item.cost)}</td>
-              <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{item.usefulLife}</td>
-              <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(item.cost / item.usefulLife)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function FinanceView({ loans }) {
   if (!loans?.length) return <EmptySheet label="Finance Costs" />;
+  const headers = [
+    { label: 'Loan' }, { label: 'Principal', align: 'right' }, { label: 'Rate', align: 'right' },
+    { label: 'Tenure (Mo)', align: 'right' }, { label: 'Monthly EMI', align: 'right' },
+  ];
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Loan</th>
-            <th className="px-3 py-2 text-right">Principal</th>
-            <th className="px-3 py-2 text-right">Rate</th>
-            <th className="px-3 py-2 text-right">Tenure (Mo)</th>
-            <th className="px-3 py-2 text-right">Monthly EMI</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loans.map((loan, i) => {
-            const r = loan.interestRate / 12;
-            const n = loan.tenureMonths;
-            const emi = r > 0 ? (loan.principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : loan.principal / n;
-            return (
-              <tr key={i} className="border-b border-slate-100">
-                <td className="px-3 py-1.5">{loan.name}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{fmt(loan.principal)}</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{(loan.interestRate * 100).toFixed(1)}%</td>
-                <td className="px-3 py-1.5 text-right text-blue-600 bg-green-50">{n}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(emi)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <SectionCard title="Finance Costs" subtitle="Loans & EMI calculations" accentColor={T.gold}>
+      <DataTable headers={headers}>
+        {loans.map((loan, i) => {
+          const r = loan.interestRate / 12;
+          const n = loan.tenureMonths;
+          const emi = r > 0 ? (loan.principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : loan.principal / n;
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{loan.name}</PlainCell>
+              <InputCell>{fmt(loan.principal)}</InputCell>
+              <InputCell>{(loan.interestRate * 100).toFixed(1)}%</InputCell>
+              <InputCell>{n}</InputCell>
+              <FormulaCell>{fmt(emi)}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+    </SectionCard>
   );
 }
 
 function ProductMixView({ products }) {
   if (!products?.length) return <EmptySheet label="Product Market Mix" />;
+  const headers = [
+    { label: 'Product' }, { label: 'Active' }, { label: 'Cost/Unit', align: 'right' },
+    { label: 'Sale Price', align: 'right' }, { label: 'Margin', align: 'right' },
+    { label: 'Contribution', align: 'right' }, { label: 'Break-Even', align: 'right' },
+  ];
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Product</th>
-            <th className="px-3 py-2 text-center">Active</th>
-            <th className="px-3 py-2 text-right">Cost/Unit</th>
-            <th className="px-3 py-2 text-right">Sale Price</th>
-            <th className="px-3 py-2 text-right">Margin</th>
-            <th className="px-3 py-2 text-right">Contribution</th>
-          </tr>
-        </thead>
-        <tbody>
-          {products.map((p, i) => {
-            const cost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
-            const sp = cost / (1 - (p.targetMargin || 0.35));
-            return (
-              <tr key={i} className="border-b border-slate-100">
-                <td className="px-3 py-1.5 font-medium">{p.name}</td>
-                <td className="px-3 py-1.5 text-center text-green-600 font-bold">YES</td>
-                <td className="px-3 py-1.5 text-right">{fmt(cost)}</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(sp)}</td>
-                <td className="px-3 py-1.5 text-right">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</td>
-                <td className="px-3 py-1.5 text-right bg-blue-50">{fmt(sp - cost)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <SectionCard title="Product Market Mix" subtitle="YES/NO toggle, cost build-up & break-even" accentColor={T.teal}>
+      <DataTable headers={headers}>
+        {products.map((p, i) => {
+          const cost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
+          const sp = cost / (1 - (p.targetMargin || 0.35));
+          const contrib = sp - cost;
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{p.name}</PlainCell>
+              <td className="px-3 py-2 text-center font-bold text-[12px]" style={{ color: T.green }}>YES</td>
+              <FormulaCell>{fmt(cost)}</FormulaCell>
+              <FormulaCell>{fmt(sp)}</FormulaCell>
+              <PlainCell align="right">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</PlainCell>
+              <FormulaCell>{fmt(contrib)}</FormulaCell>
+              <FormulaCell>{contrib > 0 ? '\u2014' : 'N/A'}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>* Break-even calculated per-product against allocated fixed costs in the Excel file</p>
+    </SectionCard>
   );
 }
 
@@ -410,68 +587,244 @@ function LTVView({ params }) {
   const freq = params?.purchaseFrequency || 12;
   const ret = params?.retentionRate || 0.7;
   const margin = params?.grossMargin || 0.4;
+  const discount = params?.discountRate || 0.1;
   const lifespan = ret < 1 ? 1 / (1 - ret) : 10;
-  const ltv = aov * freq * lifespan * margin;
+  const simpleLTV = aov * freq * lifespan * margin;
+  let dcfLTV = 0;
+  for (let m = 0; m < 24; m++) {
+    const retention = Math.pow(ret, m / 12);
+    const revenue = aov * (freq / 12) * retention * margin;
+    dcfLTV += revenue / Math.pow(1 + discount / 12, m);
+  }
+  return (
+    <SectionCard title="Customer LTV Analysis" subtitle="Simple LTV + 24-month DCF cohort" accentColor={T.green}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          <StatCard label="Avg Order Value" value={fmt(aov)} accent={T.teal} />
+          <StatCard label="Purchase Freq/Year" value={freq.toString()} accent={T.teal} />
+          <StatCard label="Retention Rate" value={`${(ret * 100).toFixed(0)}%`} accent={T.teal} />
+          <StatCard label="Gross Margin" value={`${(margin * 100).toFixed(0)}%`} accent={T.teal} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.green}08, ${T.bg1} 40%)`, border: `1px solid ${T.green}25`, boxShadow: T.card }}>
+            <div className="text-[10px] font-bold uppercase tracking-[0.05em]" style={{ color: T.green }}>Simple LTV</div>
+            <div className="text-xl font-bold font-num mt-1" style={{ color: T.t0 }}>{fmt(simpleLTV)}</div>
+            <div className="text-[10px] mt-1" style={{ color: T.green }}>Lifespan: {lifespan.toFixed(1)} years</div>
+          </div>
+          <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.teal}08, ${T.bg1} 40%)`, border: `1px solid ${T.teal}25`, boxShadow: T.card }}>
+            <div className="text-[10px] font-bold uppercase tracking-[0.05em]" style={{ color: T.teal }}>24-Month DCF LTV</div>
+            <div className="text-xl font-bold font-num mt-1" style={{ color: T.t0 }}>{fmt(dcfLTV)}</div>
+            <div className="text-[10px] mt-1" style={{ color: T.teal }}>Discount rate: {(discount * 100).toFixed(0)}%</div>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+function TargetProfitView({ products, profitTargets, employees, adminExpenses }) {
+  if (!products?.length) return <EmptySheet label="Target Profit Calculator" />;
+  const totalHR = (employees || []).reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
+  const totalAdmin = (adminExpenses || []).reduce((s, e) => s + e.monthlyAmount, 0);
+  const totalFixed = totalHR + totalAdmin;
+  const targetProfit = profitTargets?.targetMonthlyProfit || 0;
+  const reqContrib = totalFixed + targetProfit;
+  const headers = [
+    { label: 'Product' }, { label: 'Contribution/Unit', align: 'right' },
+    { label: 'Required Units/Mo', align: 'right' }, { label: 'Required Revenue/Mo', align: 'right' },
+  ];
+  return (
+    <SectionCard title="Target Profit Calculator" subtitle="Reverse-engineer sales targets" accentColor={T.gold}>
+      <div className="grid grid-cols-3 gap-2.5 mb-4">
+        <StatCard label="Total Fixed Costs" value={fmt(totalFixed)} accent={T.red} />
+        <StatCard label="Target Profit" value={fmt(targetProfit)} accent={T.green} />
+        <StatCard label="Required Contribution" value={fmt(reqContrib)} accent={T.navy} />
+      </div>
+      <DataTable headers={headers}>
+        {products.map((p, i) => {
+          const cost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
+          const sp = cost / (1 - (p.targetMargin || 0.35));
+          const contrib = sp - cost;
+          const share = 1 / products.length;
+          const unitsNeeded = contrib > 0 ? Math.ceil((reqContrib * share) / contrib) : 0;
+          return (
+            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+              <PlainCell bold>{p.name}</PlainCell>
+              <LinkCell>{fmt(contrib)}</LinkCell>
+              <FormulaCell>{unitsNeeded}</FormulaCell>
+              <FormulaCell>{fmt(unitsNeeded * sp)}</FormulaCell>
+            </tr>
+          );
+        })}
+      </DataTable>
+      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>* Revenue split equally across products. Excel uses customizable mix ratios.</p>
+    </SectionCard>
+  );
+}
+
+function CashFlowView({ products, employees, marketingChannels, adminExpenses, loans }) {
+  if (!products?.length) return <EmptySheet label="Cash Flow" />;
+  const monthlyRev = products.reduce((s, p) => {
+    const c = (p.costElements || []).reduce((s2, e) => s2 + e.cost, 0);
+    return s + (c / (1 - (p.targetMargin || 0.35))) * (p.monthlyVolume || 0);
+  }, 0);
+  const monthlyCOGS = products.reduce((s, p) => {
+    const c = (p.costElements || []).reduce((s2, e) => s2 + e.cost, 0);
+    return s + c * (p.monthlyVolume || 0);
+  }, 0);
+  const monthlyHR = (employees || []).reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
+  const monthlyMkt = (marketingChannels || []).reduce((s, c) => s + c.monthlyBudget, 0);
+  const monthlyAdmin = (adminExpenses || []).reduce((s, e) => s + e.monthlyAmount, 0);
+  const monthlyEMI = (loans || []).reduce((s, l) => {
+    const r = l.interestRate / 12;
+    const n = l.tenureMonths;
+    return s + (r > 0 ? (l.principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : l.principal / n);
+  }, 0);
+  const g = 0.05;
+  const months = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12'];
+  const rows = [
+    { label: 'Revenue', base: monthlyRev, grows: true },
+    { label: 'COGS', base: monthlyCOGS, grows: true },
+    { label: 'Gross Profit', base: monthlyRev - monthlyCOGS, grows: true, isTotal: true },
+    { label: 'HR Costs', base: monthlyHR, grows: false },
+    { label: 'Marketing', base: monthlyMkt, grows: false },
+    { label: 'Admin', base: monthlyAdmin, grows: false },
+    { label: 'EMI', base: monthlyEMI, grows: false },
+  ];
+  const totalExp = monthlyHR + monthlyMkt + monthlyAdmin + monthlyEMI;
 
   return (
-    <div className="space-y-4">
-      <h4 className="text-sm font-bold text-navy">Customer LTV Parameters</h4>
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <InfoCard label="Avg Order Value" value={fmt(aov)} />
-        <InfoCard label="Purchase Freq/Year" value={freq.toString()} />
-        <InfoCard label="Retention Rate" value={`${(ret * 100).toFixed(0)}%`} />
-        <InfoCard label="Gross Margin" value={`${(margin * 100).toFixed(0)}%`} />
+    <SectionCard title="12-Month Cash Flow Projection" subtitle={`Assumes ${(g * 100).toFixed(0)}% monthly revenue growth`} accentColor={T.teal}>
+      <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.bg3}` }}>
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr style={{ background: `linear-gradient(135deg, ${T.header}, ${T.header}E0)` }}>
+              <th className="px-3 py-2.5 text-left text-white font-semibold text-[10px] uppercase tracking-[0.04em] sticky left-0 z-10" style={{ background: T.header }}>Line Item</th>
+              {months.map(m => <th key={m} className="px-2 py-2.5 text-right text-white font-semibold text-[10px] min-w-[72px]">{m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className={`border-b ${row.isTotal ? '' : 'sheet-row'}`} style={{ borderColor: T.bg2, background: row.isTotal ? T.total : 'transparent' }}>
+                <td className={`px-3 py-2 sticky left-0 z-10 ${row.isTotal ? 'font-bold' : 'font-medium'}`} style={{ background: row.isTotal ? T.total : T.bg1, color: T.t1 }}>{row.label}</td>
+                {months.map((_, mi) => {
+                  const val = row.base * (row.grows ? Math.pow(1 + g, mi) : 1);
+                  return <td key={mi} className="px-2 py-2 text-right font-num" style={{ background: row.isTotal ? T.total : `${T.formula}30`, color: T.t1 }}>{fmtShort(val)}</td>;
+                })}
+              </tr>
+            ))}
+            {/* Net Cash Flow */}
+            <tr style={{ background: `linear-gradient(135deg, ${T.header}, ${T.header}E0)` }}>
+              <td className="px-3 py-2.5 sticky left-0 z-10 text-white font-bold text-[11px]" style={{ background: T.header }}>Net Cash Flow</td>
+              {months.map((_, mi) => {
+                const rev = monthlyRev * Math.pow(1 + g, mi);
+                const cogs = monthlyCOGS * Math.pow(1 + g, mi);
+                const net = rev - cogs - totalExp;
+                return <td key={mi} className="px-2 py-2.5 text-right font-bold font-num" style={{ color: net < 0 ? '#FCA5A5' : '#86EFAC' }}>{fmtShort(net)}</td>;
+              })}
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-        <div className="text-xs text-green-600">Simple LTV</div>
-        <div className="text-xl font-bold text-green-800">{fmt(ltv)}</div>
-        <div className="text-xs text-green-600 mt-1">Lifespan: {lifespan.toFixed(1)} years</div>
+    </SectionCard>
+  );
+}
+
+function KPIDashboardView({ products, employees, marketingChannels, ltvParams }) {
+  if (!products?.length) return <EmptySheet label="KPI Dashboard" />;
+  const monthlyRev = products.reduce((s, p) => {
+    const c = (p.costElements || []).reduce((s2, e) => s2 + e.cost, 0);
+    return s + (c / (1 - (p.targetMargin || 0.35))) * (p.monthlyVolume || 0);
+  }, 0);
+  const monthlyCOGS = products.reduce((s, p) => {
+    const c = (p.costElements || []).reduce((s2, e) => s2 + e.cost, 0);
+    return s + c * (p.monthlyVolume || 0);
+  }, 0);
+  const gp = monthlyRev - monthlyCOGS;
+  const gm = monthlyRev > 0 ? gp / monthlyRev : 0;
+  const monthlyHR = (employees || []).reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
+  const monthlyMkt = (marketingChannels || []).reduce((s, c) => s + c.monthlyBudget, 0);
+  const totalLeads = (marketingChannels || []).reduce((s, c) => s + c.expectedLeads, 0);
+  const totalCust = (marketingChannels || []).reduce((s, c) => s + c.expectedLeads * c.conversionRate, 0);
+  const cac = totalCust > 0 ? monthlyMkt / totalCust : 0;
+  const avgMargin = products.length > 0 ? products.reduce((s, p) => s + (p.targetMargin || 0.35), 0) / products.length : 0;
+  const aov = ltvParams?.avgOrderValue || (monthlyRev / Math.max(totalCust, 1));
+  const ret = ltvParams?.retentionRate || 0.7;
+  const lifespan = ret < 1 ? 1 / (1 - ret) : 10;
+  const simpleLTV = aov * (ltvParams?.purchaseFrequency || 12) * lifespan * (ltvParams?.grossMargin || gm);
+  const ltvCac = cac > 0 ? simpleLTV / cac : 0;
+  const teamSize = (employees || []).reduce((s, e) => s + (e.count || 1), 0);
+
+  const kpis = [
+    { label: 'Monthly Revenue', value: fmt(monthlyRev), accent: T.teal },
+    { label: 'Monthly COGS', value: fmt(monthlyCOGS), accent: T.red },
+    { label: 'Gross Profit', value: fmt(gp), accent: T.green },
+    { label: 'Gross Margin', value: `${(gm * 100).toFixed(1)}%`, accent: T.green },
+    { label: 'HR Cost/Revenue', value: monthlyRev > 0 ? `${((monthlyHR / monthlyRev) * 100).toFixed(1)}%` : '\u2014', accent: T.purple },
+    { label: 'Monthly Leads', value: totalLeads.toString(), accent: T.teal },
+    { label: 'Monthly Customers', value: Math.round(totalCust).toString(), accent: T.teal },
+    { label: 'CAC', value: fmt(cac), accent: T.gold },
+    { label: 'Avg Order Value', value: fmt(aov), accent: T.teal },
+    { label: 'Simple LTV', value: fmt(simpleLTV), accent: T.green },
+    { label: 'LTV/CAC Ratio', value: ltvCac > 0 ? `${ltvCac.toFixed(1)}x` : '\u2014', accent: ltvCac >= 3 ? T.green : T.red },
+    { label: 'Avg Product Margin', value: `${(avgMargin * 100).toFixed(1)}%`, accent: T.teal },
+    { label: 'Team Size', value: teamSize.toString(), accent: T.purple },
+  ];
+
+  return (
+    <SectionCard title="KPI Dashboard" subtitle="13 live KPIs" accentColor={T.navy}>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+        {kpis.map((kpi, i) => (
+          <StatCard key={i} label={kpi.label} value={kpi.value} accent={kpi.accent} />
+        ))}
       </div>
-    </div>
+      <p className="text-[10px] mt-3" style={{ color: T.t3 }}>* All KPIs in the Excel file use live cross-sheet formulas.</p>
+    </SectionCard>
   );
 }
 
 function ScenarioView({ scenarios }) {
+  const headers = [
+    { label: 'Metric' },
+    { label: 'Best Case', align: 'right' },
+    { label: 'Base Case', align: 'right' },
+    { label: 'Worst Case', align: 'right' },
+  ];
+  const metrics = [
+    { label: 'Revenue Multiplier', best: scenarios?.best?.revenueMultiplier || 1.2, base: scenarios?.base?.revenueMultiplier || 1.0, worst: scenarios?.worst?.revenueMultiplier || 0.7 },
+    { label: 'Cost Multiplier', best: scenarios?.best?.costMultiplier || 0.9, base: scenarios?.base?.costMultiplier || 1.0, worst: scenarios?.worst?.costMultiplier || 1.15 },
+  ];
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[#1F4E79] text-white">
-            <th className="px-3 py-2 text-left">Metric</th>
-            <th className="px-3 py-2 text-center text-green-300">Best</th>
-            <th className="px-3 py-2 text-center">Base</th>
-            <th className="px-3 py-2 text-center text-red-300">Worst</th>
+    <SectionCard title="Scenario Analysis" subtitle="Best / Base / Worst case with cross-sheet refs" accentColor={T.navy}>
+      <DataTable headers={headers}>
+        {metrics.map((m, i) => (
+          <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+            <PlainCell bold>{m.label}</PlainCell>
+            <td className="px-3 py-2 text-right font-num font-semibold" style={{ background: `${T.green}10`, color: T.green }}>{m.best}x</td>
+            <td className="px-3 py-2 text-right font-num" style={{ color: T.t1 }}>{m.base}x</td>
+            <td className="px-3 py-2 text-right font-num font-semibold" style={{ background: `${T.red}10`, color: T.red }}>{m.worst}x</td>
           </tr>
-        </thead>
-        <tbody>
-          <tr className="border-b border-slate-100">
-            <td className="px-3 py-1.5">Revenue Multiplier</td>
-            <td className="px-3 py-1.5 text-center bg-green-50">{scenarios?.best?.revenueMultiplier || 1.2}x</td>
-            <td className="px-3 py-1.5 text-center">{scenarios?.base?.revenueMultiplier || 1.0}x</td>
-            <td className="px-3 py-1.5 text-center bg-red-50">{scenarios?.worst?.revenueMultiplier || 0.7}x</td>
-          </tr>
-          <tr className="border-b border-slate-100">
-            <td className="px-3 py-1.5">Cost Multiplier</td>
-            <td className="px-3 py-1.5 text-center bg-green-50">{scenarios?.best?.costMultiplier || 0.9}x</td>
-            <td className="px-3 py-1.5 text-center">{scenarios?.base?.costMultiplier || 1.0}x</td>
-            <td className="px-3 py-1.5 text-center bg-red-50">{scenarios?.worst?.costMultiplier || 1.15}x</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </DataTable>
+    </SectionCard>
   );
 }
 
-function EmptySheet({ label }) {
-  return (
-    <div className="flex items-center justify-center h-32 text-slate-400 text-xs">
-      No {label} data yet. Complete the chat to populate this sheet.
-    </div>
-  );
-}
+/* ════════════════════════════════════════════════════════
+   Formatters
+   ════════════════════════════════════════════════════════ */
 
-/** Format number as INR */
 function fmt(n) {
   if (n === undefined || n === null || isNaN(n)) return '\u20B90';
   return '\u20B9' + Math.round(n).toLocaleString('en-IN');
+}
+
+function fmtShort(n) {
+  if (n === undefined || n === null || isNaN(n)) return '\u20B90';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 10000000) return `${sign}\u20B9${(abs / 10000000).toFixed(1)}Cr`;
+  if (abs >= 100000) return `${sign}\u20B9${(abs / 100000).toFixed(1)}L`;
+  if (abs >= 1000) return `${sign}\u20B9${(abs / 1000).toFixed(1)}K`;
+  return `${sign}\u20B9${Math.round(abs)}`;
 }

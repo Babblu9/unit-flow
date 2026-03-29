@@ -1,7 +1,7 @@
 {
-  "name": "oneasy-unit-economics",
+  "name": "unit-flow-by-oneasy",
   "version": "1.0.0",
-  "description": "Unit Economics Engine by OnEasy - AI-powered 17-sheet unit economics model builder",
+  "description": "Unit Flow by OnEasy - AI-powered 17-sheet unit economics model builder",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
@@ -22,13 +22,11 @@
     "drizzle-orm": "^0.45.1",
     "exa-js": "^2.10.2",
     "exceljs": "^4.4.0",
-    "framer-motion": "^12.34.3",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.8.0",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.3.6"
   },

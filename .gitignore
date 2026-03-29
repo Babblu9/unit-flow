@@ -41,3 +41,14 @@ BlueLeaveFarms_UnitEconomics_V4_FINAL.xlsx
 Claude Chat-Unit Economics Model.docx
 OnEasy_AI_QuestionFlow_v2.1_DevReady.html
 OnEasy_AI_QuestionFlow_v2.html
+
+# generated Excel outputs
+AI_Generated_*.xlsx
+
+# duplicate logo staging folder (actual logos are in public/logos/)
+/logos/
+
+# large template descriptors (unused, multi-MB)
+src/lib/excel/templateDescriptor.json
+src/lib/excel/templateDescriptor.min.json
+src/lib/excel/templateDescriptor.opt.json

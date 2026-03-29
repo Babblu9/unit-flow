@@ -1,53 +1,61 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --primary: #1B2A4A;
-  --primary-hover: #142038;
+  /* ── Surface & Background ── */
+  --bg-page: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-hover: #F1F5F9;
+  --bg-muted: #E2E8F0;
+
+  /* ── Text ── */
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-tertiary: #64748B;
+  --text-muted: #94A3B8;
+
+  /* ── Brand ── */
+  --navy: #1B2A4A;
+  --navy-light: #2D4373;
+  --navy-dark: #142038;
   --accent: #E53935;
   --accent-hover: #C62828;
+
+  /* ── Semantic ── */
+  --teal: #0F766E;
+  --teal-light: #14B8A6;
+  --green: #15803D;
+  --green-light: #22C55E;
+  --gold: #D97706;
+  --purple: #7C3AED;
+
+  /* ── Borders ── */
+  --border: #E2E8F0;
+  --border-light: #F1F5F9;
+  --border-focus: #3B82F6;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.05);
+  --shadow-navy: 0 2px 12px rgba(27,42,74,0.25);
+
+  /* ── Excel colors ── */
+  --excel-header: #1F4E79;
+  --excel-input: #C6EFCE;
+  --excel-formula: #BDD7EE;
+  --excel-link: #D6E4F0;
+  --excel-total: #D9E2F3;
 }
 
-html {
-  font-size: 15px;
-}
+html { font-size: 15px; }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--text-primary);
+  background: var(--bg-page);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
-  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-@layer utilities {
-  .glass {
-    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
-  }
-}
-
-/* Excel cell flash animation */
-@keyframes cellFlash {
-  0%   { background-color: #DBEAFE; box-shadow: inset 0 0 0 2px #1B2A4A; }
-  60%  { background-color: #EFF6FF; box-shadow: inset 0 0 0 1px #3B5998; }
-  100% { background-color: transparent; box-shadow: none; }
-}
-
-.cell-flash {
-  animation: cellFlash 2s ease-out forwards;
-}
-
-/* Thin styled scrollbar for the Excel table area */
-.excel-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-.excel-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
-.excel-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-.excel-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-table {
-  border-spacing: 0;
 }
 
 ::selection {
@@ -55,21 +63,84 @@ table {
   color: #0f172a;
 }
 
-@keyframes spinAnim {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.spin {
-  animation: spinAnim 1s linear infinite;
+/* ── Global scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Excel-area scrollbar ── */
+.excel-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.excel-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+.excel-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.excel-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Tables ── */
+table { border-spacing: 0; border-collapse: collapse; }
+
+/* ── Font utility ── */
+.font-num { font-family: 'JetBrains Mono', monospace; }
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Chat typing indicator */
-@keyframes blink {
-  0%, 80%, 100% { opacity: 0; }
-  40% { opacity: 1; }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.typing-dot {
-  animation: blink 1.4s infinite both;
+
+@keyframes cellFlash {
+  0%   { background-color: #DBEAFE; box-shadow: inset 0 0 0 2px #1B2A4A; }
+  60%  { background-color: #EFF6FF; box-shadow: inset 0 0 0 1px #3B5998; }
+  100% { background-color: transparent; box-shadow: none; }
 }
+
+@keyframes spinAnim {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.fade-in { animation: fadeIn 0.3s ease-out both; }
+.slide-up { animation: slideUp 0.4s ease-out both; }
+.cell-flash { animation: cellFlash 2s ease-out forwards; }
+.spin { animation: spinAnim 1s linear infinite; }
+
+.typing-dot { animation: dotPulse 1.2s infinite both; }
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── Chat markdown ── */
+.chat-md p { margin-bottom: 0.35em; }
+.chat-md p:last-child { margin-bottom: 0; }
+.chat-md ul, .chat-md ol { margin: 0.25em 0; padding-left: 1.2em; }
+.chat-md li { margin-bottom: 0.15em; }
+.chat-md code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  background: rgba(0,0,0,0.06);
+  border-radius: 4px;
+}
+
+/* ── Hover utilities ── */
+.hover-lift { transition: all 0.2s ease; }
+.hover-lift:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+/* ── Sheet table row hover ── */
+.sheet-row { transition: background 0.15s ease; }
+.sheet-row:hover { background: #EFF6FF !important; }
+
+/* ── Glass utility ── */
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  }
+}

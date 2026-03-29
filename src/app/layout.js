@@ -3,10 +3,10 @@ import { UnitEconomicsProvider } from '@/context/UnitEconomicsContext';
 import './globals.css';
 
 export const metadata = {
-  title: 'Unit Economics Engine \u2014 OnEasy',
+  title: 'Unit Flow by OnEasy',
   description: 'AI-powered 17-sheet Unit Economics model builder. Describe your business, get a complete financial model.',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/logos/unit-flow.png',
   },
 };
 

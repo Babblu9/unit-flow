@@ -3,16 +3,18 @@ import { requireAuth } from '@/lib/auth.js';
 import { getConversation } from '@/lib/db/conversations.js';
 import { generateWorkbook } from '@/lib/excel/templateBuilder.js';
 import { saveExcel } from '@/lib/db/excels.js';
-import fs from 'fs';
-import path from 'path';
 
 /**
  * POST /api/excel-download
- * Generates the 17-sheet Excel workbook from the draft and returns it for download.
- * Also saves a copy to the DB and to /tmp for subsequent patching.
+ *
+ * Generates a complete 17-sheet Unit Economics Excel workbook from the AI draft
+ * using the programmatic templateBuilder (no external template file needed).
+ * All formulas are generated in code — no stale data, no bleed-through.
  *
  * Body: { conversationId }
  */
+export const maxDuration = 60;
+
 export async function POST(request) {
   try {
     const { dbUser } = await requireAuth();
@@ -32,25 +34,21 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No model draft found. Complete the chat first.' }, { status: 400 });
     }
 
-    // Generate workbook
+    // Generate the workbook from scratch using templateBuilder
     const wb = await generateWorkbook(draft);
 
-    // Write to /tmp for future patching
-    const tmpPath = path.join('/tmp', `unit_economics_${conversationId}.xlsx`);
-    await wb.xlsx.writeFile(tmpPath);
-
-    // Read back as buffer for DB storage and download
-    const buffer = await wb.xlsx.writeBuffer();
+    // Write to buffer
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
 
     // Save to DB
     const companyName = draft.companyName || 'Company';
-    const fileName = `${companyName.replace(/[^a-zA-Z0-9]/g, '_')}_UnitEconomics.xlsx`;
+    const fileName = `${companyName.replace(/[^a-zA-Z0-9]/g, '_')}_UnitFlow.xlsx`;
 
     await saveExcel({
       userId: dbUser.id,
       conversationId,
       fileName,
-      fileData: Buffer.from(buffer),
+      fileData: buffer,
       modelSnapshot: draft,
     });
 

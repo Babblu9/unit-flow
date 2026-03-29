@@ -18,7 +18,7 @@ export function modelStateToPatches(state) {
   // ── Business info → Instructions sheet ──
   if (state.businessInfo) {
     const bi = state.businessInfo;
-    patches.push({ sheet: 'Instructions & Guide', cell: 'B2', value: `${bi.companyName || 'Company'} \u2014 Unit Economics Model` });
+    patches.push({ sheet: 'Instructions & Guide', cell: 'B2', value: `${bi.companyName || 'Company'} \u2014 Unit Flow by OnEasy` });
   }
 
   // ── HR Costs (Sheet 1) ──

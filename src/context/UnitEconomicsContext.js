@@ -118,6 +118,35 @@ export function UnitEconomicsProvider({ children }) {
   const patchQueueRef = useRef([]);
   const patchTimerRef = useRef(null);
 
+  // ── Template cell overrides (from AI draft + user edits) ──
+  // Shape: { sheetName: { cellAddr: value } }
+  const [templateOverrides, setTemplateOverrides] = useState({});
+  const [templateOverrideVersion, setTemplateOverrideVersion] = useState(0);
+
+  // Apply a batch of overrides from AI (cellMapper output)
+  const applyTemplateOverrides = useCallback((patches) => {
+    setTemplateOverrides(prev => {
+      const next = { ...prev };
+      for (const [sheet, cells] of Object.entries(patches)) {
+        next[sheet] = { ...(next[sheet] || {}), ...cells };
+      }
+      return next;
+    });
+    setTemplateOverrideVersion(v => v + 1);
+  }, []);
+
+  // Apply a single cell edit from user interaction
+  const setTemplateCell = useCallback((sheetName, cellAddr, value) => {
+    setTemplateOverrides(prev => ({
+      ...prev,
+      [sheetName]: { ...(prev[sheetName] || {}), [cellAddr]: value },
+    }));
+    setTemplateOverrideVersion(v => v + 1);
+  }, []);
+
+  // ── Loading state for conversation switching ──
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+
   // ── Flash animation helper ──
   const flashSheet = useCallback((sheetName) => {
     setFlashingSheet(sheetName);
@@ -163,6 +192,104 @@ export function UnitEconomicsProvider({ children }) {
   // ── Business info setter ──
   const setBusinessInfo = useCallback((patch) => {
     setBusinessInfoState(prev => ({ ...prev, ...patch }));
+  }, []);
+
+  // ── Load a saved conversation by ID ──
+  const loadConversation = useCallback(async (id) => {
+    try {
+      setIsLoadingConversation(true);
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to load conversation');
+      }
+      const { conversation } = await res.json();
+
+      // Restore chat state
+      setConversationId(conversation.id);
+      setMessages(conversation.messages || []);
+      setCurrentStep(conversation.screenPhase || 'welcome');
+      setCompletion(conversation.completion || 0);
+
+      // Restore model state if present
+      const ms = conversation.modelState;
+      if (ms) {
+        if (ms.businessInfo)        setBusinessInfoState(prev => ({ ...prev, ...ms.businessInfo }));
+        if (ms.employees)           setEmployees(ms.employees);
+        if (ms.marketingChannels)   setMarketingChannels(ms.marketingChannels);
+        if (ms.products)            setProducts(ms.products);
+        if (ms.cities)              setCities(ms.cities);
+        if (ms.selectedCity)        setSelectedCity(ms.selectedCity);
+        if (ms.adminExpenses)       setAdminExpenses(ms.adminExpenses);
+        if (ms.capexItems)          setCapexItems(ms.capexItems);
+        if (ms.loans)               setLoans(ms.loans);
+        if (ms.productToggles)      setProductToggles(ms.productToggles);
+        if (ms.ltvParams)           setLtvParams(ms.ltvParams);
+        if (ms.profitTargets)       setProfitTargets(ms.profitTargets);
+        if (ms.scenarios)           setScenarios(ms.scenarios);
+      }
+
+      setActiveSheet('Instructions & Guide');
+      setIsGenerating(false);
+    } catch (err) {
+      console.error('loadConversation error:', err);
+    } finally {
+      setIsLoadingConversation(false);
+    }
+  }, []);
+
+  // ── Reset to blank state for a new conversation ──
+  const resetConversation = useCallback(() => {
+    setConversationId(null);
+    setMessages([]);
+    setCurrentStep('welcome');
+    setCompletion(0);
+    setIsGenerating(false);
+    setBusinessInfoState({
+      companyName: '',
+      businessDescription: '',
+      productsServices: '',
+      targetCustomer: '',
+      city: '',
+      businessStage: '',
+      teamSize: '',
+      monthlyRevenue: '',
+      investmentAmount: '',
+      monthlyRent: '',
+      profitTarget: '',
+      loansBorrowings: '',
+    });
+    setEmployees([]);
+    setMarketingChannels([]);
+    setProducts([]);
+    setCities([]);
+    setSelectedCity('');
+    setAdminExpenses([]);
+    setCapexItems([]);
+    setLoans([]);
+    setProductToggles({});
+    setLtvParams({
+      avgOrderValue: 0,
+      purchaseFrequency: 12,
+      retentionRate: 0.7,
+      grossMargin: 0.4,
+      discountRate: 0.1,
+    });
+    setProfitTargets({
+      targetMonthlyProfit: 0,
+      revenueMixOverrides: {},
+    });
+    setScenarios({
+      best:  { revenueMultiplier: 1.2, costMultiplier: 0.9 },
+      base:  { revenueMultiplier: 1.0, costMultiplier: 1.0 },
+      worst: { revenueMultiplier: 0.7, costMultiplier: 1.15 },
+    });
+    setExcelPatches([]);
+    setExcelPatchVersion(0);
+    patchQueueRef.current = [];
+    setTemplateOverrides({});
+    setTemplateOverrideVersion(0);
+    setActiveSheet('Instructions & Guide');
   }, []);
 
   // ── Sheet name constants ──
@@ -239,6 +366,13 @@ export function UnitEconomicsProvider({ children }) {
 
       // Excel patches
       excelPatches, excelPatchVersion, setExcelPatchVersion, patchExcel,
+
+      // Template overrides (for new template-based viewer)
+      templateOverrides, templateOverrideVersion,
+      applyTemplateOverrides, setTemplateCell,
+
+      // Conversation management
+      loadConversation, resetConversation, isLoadingConversation,
     }}>
       {children}
     </UnitEconomicsContext.Provider>
