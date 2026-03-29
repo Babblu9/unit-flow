@@ -1,0 +1,1371 @@
+/**
+ * ExcelJS template builder for the 17-sheet Unit Economics model.
+ * Generates a fully formatted, formula-linked .xlsx workbook.
+ *
+ * Color scheme:
+ *   Dark Navy #1F4E79 headers with white text
+ *   Light Green #C6EFCE for inputs with blue text #0000FF
+ *   Light Blue #BDD7EE for formulas with black text
+ *   Lighter Blue #D6E4F0 for cross-sheet links
+ */
+import ExcelJS from 'exceljs';
+
+/* ── Style constants ── */
+const STYLES = {
+  headerFill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } },
+  headerFont: { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Calibri' },
+  inputFill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6EFCE' } },
+  inputFont: { color: { argb: 'FF0000FF' }, size: 11, name: 'Calibri' },
+  formulaFill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBDD7EE' } },
+  formulaFont: { color: { argb: 'FF000000' }, size: 11, name: 'Calibri' },
+  crossRefFill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6E4F0' } },
+  crossRefFont: { color: { argb: 'FF000000' }, size: 11, name: 'Calibri' },
+  sectionFill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E2F3' } },
+  sectionFont: { bold: true, color: { argb: 'FF1F4E79' }, size: 11, name: 'Calibri' },
+  normalFont: { size: 11, name: 'Calibri' },
+  borderThin: {
+    top: { style: 'thin', color: { argb: 'FFB4C6E7' } },
+    left: { style: 'thin', color: { argb: 'FFB4C6E7' } },
+    bottom: { style: 'thin', color: { argb: 'FFB4C6E7' } },
+    right: { style: 'thin', color: { argb: 'FFB4C6E7' } },
+  },
+  numberFormat: '#,##0',
+  currencyFormat: '\u20B9#,##0',
+  percentFormat: '0.0%',
+};
+
+function applyHeader(cell) {
+  cell.fill = STYLES.headerFill;
+  cell.font = STYLES.headerFont;
+  cell.border = STYLES.borderThin;
+  cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+}
+
+function applyInput(cell) {
+  cell.fill = STYLES.inputFill;
+  cell.font = STYLES.inputFont;
+  cell.border = STYLES.borderThin;
+}
+
+function applyFormula(cell) {
+  cell.fill = STYLES.formulaFill;
+  cell.font = STYLES.formulaFont;
+  cell.border = STYLES.borderThin;
+}
+
+function applyCrossRef(cell) {
+  cell.fill = STYLES.crossRefFill;
+  cell.font = STYLES.crossRefFont;
+  cell.border = STYLES.borderThin;
+}
+
+function applySection(cell) {
+  cell.fill = STYLES.sectionFill;
+  cell.font = STYLES.sectionFont;
+  cell.border = STYLES.borderThin;
+}
+
+function applyNormal(cell) {
+  cell.font = STYLES.normalFont;
+  cell.border = STYLES.borderThin;
+}
+
+/**
+ * Generate a complete 17-sheet Unit Economics workbook from a draft object.
+ * @param {Object} draft - The UnitEconomicsDraftSchema object
+ * @returns {ExcelJS.Workbook}
+ */
+export async function generateWorkbook(draft) {
+  const wb = new ExcelJS.Workbook();
+  wb.calcProperties = { fullCalcOnLoad: true };
+  wb.creator = 'OnEasy Unit Economics Engine';
+  wb.created = new Date();
+
+  // ── Sheet 0: Instructions & Guide ──
+  buildInstructionsSheet(wb, draft);
+
+  // ── Sheet 1: HR Costs ──
+  buildHRSheet(wb, draft);
+
+  // ── Sheet 1.1: Rate Card ──
+  buildRateCardSheet(wb, draft);
+
+  // ── Sheet 2: Marketing Costs ──
+  buildMarketingSheet(wb, draft);
+
+  // ── Sheet 3: Manufacturing Costs ──
+  buildManufacturingSheet(wb, draft);
+
+  // ── Sheet 3A: Geo Purchase Costs ──
+  buildGeoPurchaseSheet(wb, draft);
+
+  // ── Sheet 3B: Geo Sale Prices ──
+  buildGeoSalePricesSheet(wb, draft);
+
+  // ── Sheet 3C: Geo Selector ──
+  buildGeoSelectorSheet(wb, draft);
+
+  // ── Sheet 3D: Admin & Other Expenses ──
+  buildAdminSheet(wb, draft);
+
+  // ── Sheet 3E: CAPEX ──
+  buildCapexSheet(wb, draft);
+
+  // ── Sheet 3F: Finance Costs ──
+  buildFinanceSheet(wb, draft);
+
+  // ── Sheet 4: Product Market Mix ──
+  buildProductMixSheet(wb, draft);
+
+  // ── Sheet 5: Customer LTV Analysis ──
+  buildLTVSheet(wb, draft);
+
+  // ── Sheet 6: Target Profit Calculator ──
+  buildTargetProfitSheet(wb, draft);
+
+  // ── Sheet 7: Cash Flow ──
+  buildCashFlowSheet(wb, draft);
+
+  // ── Sheet 8: KPI Dashboard ──
+  buildKPIDashboardSheet(wb, draft);
+
+  // ── Sheet 9: Scenario Analysis ──
+  buildScenarioSheet(wb, draft);
+
+  return wb;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SHEET BUILDERS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function buildInstructionsSheet(wb, draft) {
+  const ws = wb.addWorksheet('Instructions & Guide', { properties: { tabColor: { argb: 'FF1F4E79' } } });
+  ws.columns = [{ width: 5 }, { width: 25 }, { width: 60 }];
+
+  const title = ws.getCell('B2');
+  title.value = `${draft.companyName || 'Company'} \u2014 Unit Economics Model`;
+  title.font = { bold: true, size: 16, color: { argb: 'FF1F4E79' } };
+
+  const subtitle = ws.getCell('B3');
+  subtitle.value = `Generated by OnEasy AI on ${new Date().toLocaleDateString('en-IN')}`;
+  subtitle.font = { size: 11, color: { argb: 'FF666666' } };
+
+  // Color legend
+  const legendStart = 5;
+  const legend = [
+    ['Color', 'Meaning'],
+    ['', 'Header / Section Title'],
+    ['', 'Input Cell (editable)'],
+    ['', 'Formula Cell (auto-calculated)'],
+    ['', 'Cross-Sheet Reference'],
+  ];
+  legend.forEach((row, i) => {
+    const r = legendStart + i;
+    const b = ws.getCell(`B${r}`);
+    const c = ws.getCell(`C${r}`);
+    b.value = row[0] || '';
+    c.value = row[1];
+    if (i === 0) {
+      applyHeader(b); applyHeader(c);
+    } else if (i === 1) { applyHeader(b); applyNormal(c); }
+    else if (i === 2) { applyInput(b); applyNormal(c); }
+    else if (i === 3) { applyFormula(b); applyNormal(c); }
+    else if (i === 4) { applyCrossRef(b); applyNormal(c); }
+  });
+
+  // Sheet guide
+  const guideStart = legendStart + legend.length + 1;
+  const sheets = [
+    ['Sheet', 'Description'],
+    ['1. HR Costs', 'Team structure, salaries, CTC breakdown'],
+    ['1.1 Rate Card', 'Hourly/daily rates auto-linked from HR'],
+    ['2. Marketing Costs', 'Channels, funnel, CAC (AI-generated)'],
+    ['3. Manufacturing Costs', 'Product BOM / cost build-up'],
+    ['3A. Geo Purchase Costs', 'City-wise purchase/procurement costs'],
+    ['3B. Geo Sale Prices', 'City-wise selling prices (margin-first)'],
+    ['3C. Geo Selector', 'Dropdown city selection + monthly P&L'],
+    ['3D. Admin Expenses', 'Rent, utilities, insurance, office costs'],
+    ['3E. CAPEX', 'Fixed assets + depreciation schedule'],
+    ['3F. Finance Costs', 'Loans, EMI, interest calculation'],
+    ['4. Product Market Mix', 'YES/NO toggles, full cost build-up, break-even'],
+    ['5. Customer LTV', 'Simple LTV, DCF LTV, cohort decay'],
+    ['6. Target Profit', 'Reverse-engineer sales targets'],
+    ['7. Cash Flow', '12-month projection + working capital'],
+    ['8. KPI Dashboard', 'Financial, operational, marketing KPIs'],
+    ['9. Scenario Analysis', 'Best/Base/Worst case comparison'],
+  ];
+  sheets.forEach((row, i) => {
+    const r = guideStart + i;
+    const b = ws.getCell(`B${r}`);
+    const c = ws.getCell(`C${r}`);
+    b.value = row[0];
+    c.value = row[1];
+    if (i === 0) { applyHeader(b); applyHeader(c); }
+    else { applyNormal(b); applyNormal(c); b.font = { ...STYLES.normalFont, bold: true }; }
+  });
+}
+
+function buildHRSheet(wb, draft) {
+  const ws = wb.addWorksheet('1. HR Costs', { properties: { tabColor: { argb: 'FF2E75B6' } } });
+  ws.columns = [
+    { width: 5 },  // A: #
+    { width: 25 }, // B: Role
+    { width: 20 }, // C: Department
+    { width: 15 }, // D: Category
+    { width: 12 }, // E: Count
+    { width: 15 }, // F: Monthly Salary
+    { width: 15 }, // G: Annual CTC
+    { width: 15 }, // H: Monthly Total
+    { width: 15 }, // I: Annual Total
+  ];
+
+  // Title
+  const titleCell = ws.getCell('B1');
+  titleCell.value = 'HR Costs \u2014 Team Structure';
+  titleCell.font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  // Assumptions row
+  ws.getCell('B2').value = 'Working Days/Month:';
+  const wdCell = ws.getCell('C2');
+  wdCell.value = draft.assumptions?.workingDaysPerMonth || 26;
+  applyInput(wdCell);
+
+  ws.getCell('D2').value = 'Hours/Day:';
+  const hdCell = ws.getCell('E2');
+  hdCell.value = draft.assumptions?.hoursPerDay || 8;
+  applyInput(hdCell);
+
+  ws.getCell('F2').value = 'Efficiency:';
+  const effCell = ws.getCell('G2');
+  effCell.value = (draft.assumptions?.employeeEfficiency || 0.8);
+  effCell.numFmt = STYLES.percentFormat;
+  applyInput(effCell);
+
+  // Headers
+  const headers = ['#', 'Role / Position', 'Department', 'Category', 'Count', 'Monthly Salary (\u20B9)', 'Annual CTC (\u20B9)', 'Monthly Total (\u20B9)', 'Annual Total (\u20B9)'];
+  const headerRow = 4;
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(headerRow, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  // Employee rows by category
+  const categories = ['management', 'white_collar', 'blue_collar'];
+  const categoryLabels = { management: 'MANAGEMENT', white_collar: 'WHITE COLLAR', blue_collar: 'BLUE COLLAR' };
+  let row = headerRow + 1;
+  const employees = draft.employees || [];
+
+  for (const cat of categories) {
+    const catEmployees = employees.filter(e => e.category === cat);
+    if (catEmployees.length === 0) continue;
+
+    // Category section header
+    const secCell = ws.getCell(`B${row}`);
+    secCell.value = categoryLabels[cat];
+    for (let c = 1; c <= 9; c++) applySection(ws.getCell(row, c));
+    row++;
+
+    catEmployees.forEach((emp, idx) => {
+      const r = row;
+      ws.getCell(`A${r}`).value = idx + 1;
+      applyNormal(ws.getCell(`A${r}`));
+
+      ws.getCell(`B${r}`).value = emp.name;
+      applyNormal(ws.getCell(`B${r}`));
+
+      ws.getCell(`C${r}`).value = emp.department;
+      applyNormal(ws.getCell(`C${r}`));
+
+      ws.getCell(`D${r}`).value = emp.category;
+      applyNormal(ws.getCell(`D${r}`));
+
+      const countCell = ws.getCell(`E${r}`);
+      countCell.value = emp.count || 1;
+      applyInput(countCell);
+
+      const salaryCell = ws.getCell(`F${r}`);
+      salaryCell.value = emp.monthlySalary;
+      salaryCell.numFmt = STYLES.currencyFormat;
+      applyInput(salaryCell);
+
+      // Annual CTC = Monthly * 12
+      const ctcCell = ws.getCell(`G${r}`);
+      ctcCell.value = { formula: `F${r}*12` };
+      ctcCell.numFmt = STYLES.currencyFormat;
+      applyFormula(ctcCell);
+
+      // Monthly Total = Count * Salary
+      const mtCell = ws.getCell(`H${r}`);
+      mtCell.value = { formula: `E${r}*F${r}` };
+      mtCell.numFmt = STYLES.currencyFormat;
+      applyFormula(mtCell);
+
+      // Annual Total = Monthly Total * 12
+      const atCell = ws.getCell(`I${r}`);
+      atCell.value = { formula: `H${r}*12` };
+      atCell.numFmt = STYLES.currencyFormat;
+      applyFormula(atCell);
+
+      row++;
+    });
+  }
+
+  // Totals row
+  row++;
+  const totRow = row;
+  ws.getCell(`B${totRow}`).value = 'TOTAL HR COSTS';
+  applySection(ws.getCell(`B${totRow}`));
+  for (let c = 1; c <= 9; c++) applySection(ws.getCell(totRow, c));
+
+  // Sum formulas for Count, Monthly Total, Annual Total
+  ws.getCell(`E${totRow}`).value = { formula: `SUM(E${headerRow + 1}:E${totRow - 1})` };
+  ws.getCell(`E${totRow}`).numFmt = STYLES.numberFormat;
+  applyFormula(ws.getCell(`E${totRow}`));
+
+  ws.getCell(`H${totRow}`).value = { formula: `SUM(H${headerRow + 1}:H${totRow - 1})` };
+  ws.getCell(`H${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`H${totRow}`));
+
+  ws.getCell(`I${totRow}`).value = { formula: `SUM(I${headerRow + 1}:I${totRow - 1})` };
+  ws.getCell(`I${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`I${totRow}`));
+}
+
+function buildRateCardSheet(wb, draft) {
+  const ws = wb.addWorksheet('1.1 Rate Card', { properties: { tabColor: { argb: 'FF2E75B6' } } });
+  ws.columns = [
+    { width: 5 }, { width: 25 }, { width: 15 }, { width: 15 },
+    { width: 15 }, { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Rate Card \u2014 Derived from HR Costs';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  ws.getCell('B2').value = 'Formula: Cost/Hour = Monthly Salary / (Working Days \u00D7 Hours/Day \u00D7 Efficiency%)';
+  ws.getCell('B2').font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+
+  const headers = ['#', 'Role', 'Monthly Salary', 'Cost/Hour', 'Cost/Day', 'Cost/Week', 'Cost/Month'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(4, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const employees = draft.employees || [];
+  employees.forEach((emp, idx) => {
+    const r = 5 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = emp.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    // Cross-ref to HR sheet salary
+    const salCell = ws.getCell(`C${r}`);
+    salCell.value = { formula: `'1. HR Costs'!F${5 + idx}` };
+    salCell.numFmt = STYLES.currencyFormat;
+    applyCrossRef(salCell);
+
+    // Cost/Hour = Salary / (WorkDays * Hours * Efficiency)
+    const hourCell = ws.getCell(`D${r}`);
+    hourCell.value = { formula: `C${r}/('1. HR Costs'!C2*'1. HR Costs'!E2*'1. HR Costs'!G2)` };
+    hourCell.numFmt = STYLES.currencyFormat;
+    applyFormula(hourCell);
+
+    // Cost/Day = Cost/Hour * Hours/Day
+    const dayCell = ws.getCell(`E${r}`);
+    dayCell.value = { formula: `D${r}*'1. HR Costs'!E2` };
+    dayCell.numFmt = STYLES.currencyFormat;
+    applyFormula(dayCell);
+
+    // Cost/Week = Cost/Day * 6
+    const weekCell = ws.getCell(`F${r}`);
+    weekCell.value = { formula: `E${r}*6` };
+    weekCell.numFmt = STYLES.currencyFormat;
+    applyFormula(weekCell);
+
+    // Cost/Month = Salary
+    const monthCell = ws.getCell(`G${r}`);
+    monthCell.value = { formula: `C${r}` };
+    monthCell.numFmt = STYLES.currencyFormat;
+    applyFormula(monthCell);
+  });
+}
+
+function buildMarketingSheet(wb, draft) {
+  const ws = wb.addWorksheet('2. Marketing Costs', { properties: { tabColor: { argb: 'FF548235' } } });
+  ws.columns = [
+    { width: 5 }, { width: 25 }, { width: 15 }, { width: 15 },
+    { width: 12 }, { width: 15 }, { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Marketing Costs \u2014 AI Generated';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  ws.getCell('B2').value = `Business Stage: ${draft.businessStage || 'N/A'} | Industry: ${draft.industry || 'N/A'}`;
+  ws.getCell('B2').font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+
+  const headers = ['#', 'Channel', 'Monthly Budget (\u20B9)', 'Expected Leads', 'Conv. Rate', 'Customers', 'CAC (\u20B9)', 'Annual Cost (\u20B9)'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(4, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const channels = draft.marketingChannels || [];
+  channels.forEach((ch, idx) => {
+    const r = 5 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = ch.channel;
+    applyNormal(ws.getCell(`B${r}`));
+
+    const budgetCell = ws.getCell(`C${r}`);
+    budgetCell.value = ch.monthlyBudget;
+    budgetCell.numFmt = STYLES.currencyFormat;
+    applyInput(budgetCell);
+
+    const leadsCell = ws.getCell(`D${r}`);
+    leadsCell.value = ch.expectedLeads;
+    applyInput(leadsCell);
+
+    const convCell = ws.getCell(`E${r}`);
+    convCell.value = ch.conversionRate;
+    convCell.numFmt = STYLES.percentFormat;
+    applyInput(convCell);
+
+    // Customers = Leads * Conversion Rate
+    const custCell = ws.getCell(`F${r}`);
+    custCell.value = { formula: `D${r}*E${r}` };
+    custCell.numFmt = STYLES.numberFormat;
+    applyFormula(custCell);
+
+    // CAC = Budget / Customers (with IFERROR)
+    const cacCell = ws.getCell(`G${r}`);
+    cacCell.value = { formula: `IFERROR(C${r}/F${r},0)` };
+    cacCell.numFmt = STYLES.currencyFormat;
+    applyFormula(cacCell);
+
+    // Annual Cost = Monthly * 12
+    const annualCell = ws.getCell(`H${r}`);
+    annualCell.value = { formula: `C${r}*12` };
+    annualCell.numFmt = STYLES.currencyFormat;
+    applyFormula(annualCell);
+  });
+
+  // Totals
+  const totRow = 5 + channels.length + 1;
+  ws.getCell(`B${totRow}`).value = 'TOTAL MARKETING';
+  applySection(ws.getCell(`B${totRow}`));
+  for (let c = 1; c <= 8; c++) applySection(ws.getCell(totRow, c));
+
+  ws.getCell(`C${totRow}`).value = { formula: `SUM(C5:C${totRow - 1})` };
+  ws.getCell(`C${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`C${totRow}`));
+
+  ws.getCell(`D${totRow}`).value = { formula: `SUM(D5:D${totRow - 1})` };
+  applyFormula(ws.getCell(`D${totRow}`));
+
+  ws.getCell(`F${totRow}`).value = { formula: `SUM(F5:F${totRow - 1})` };
+  applyFormula(ws.getCell(`F${totRow}`));
+
+  // Blended CAC
+  ws.getCell(`G${totRow}`).value = { formula: `IFERROR(C${totRow}/F${totRow},0)` };
+  ws.getCell(`G${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`G${totRow}`));
+
+  ws.getCell(`H${totRow}`).value = { formula: `SUM(H5:H${totRow - 1})` };
+  ws.getCell(`H${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`H${totRow}`));
+}
+
+function buildManufacturingSheet(wb, draft) {
+  const ws = wb.addWorksheet('3. Manufacturing Costs', { properties: { tabColor: { argb: 'FFBF8F00' } } });
+
+  // Dynamic columns based on max cost elements
+  const products = draft.products || [];
+  const maxElements = Math.max(5, ...products.map(p => (p.costElements || []).length));
+
+  const cols = [{ width: 5 }, { width: 25 }, { width: 15 }]; // #, Product, Group
+  for (let i = 0; i < maxElements; i++) cols.push({ width: 14 }); // Cost elements
+  cols.push({ width: 15 }); // Total Cost
+  cols.push({ width: 12 }); // Target Margin
+  cols.push({ width: 15 }); // Sale Price
+  cols.push({ width: 12 }); // Monthly Vol
+  cols.push({ width: 15 }); // Monthly Revenue
+  ws.columns = cols;
+
+  ws.getCell('B1').value = 'Manufacturing / COGS Costs \u2014 Product Cost Build-Up';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  ws.getCell('B2').value = 'Sale Price = Total Cost / (1 - Target Margin%)';
+  ws.getCell('B2').font = { italic: true, size: 10, color: { argb: 'FFE53935' } };
+
+  // Collect all unique cost element names
+  const allElementNames = new Set();
+  products.forEach(p => (p.costElements || []).forEach(e => allElementNames.add(e.name)));
+  const elementNames = Array.from(allElementNames).slice(0, maxElements);
+  while (elementNames.length < maxElements) elementNames.push(`Cost Element ${elementNames.length + 1}`);
+
+  // Headers
+  const headerLabels = ['#', 'Product Name', 'Group', ...elementNames, 'Total Cost (\u20B9)', 'Target Margin', 'Sale Price (\u20B9)', 'Monthly Vol', 'Monthly Revenue (\u20B9)'];
+  headerLabels.forEach((h, i) => {
+    const cell = ws.getCell(4, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  products.forEach((prod, idx) => {
+    const r = 5 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    ws.getCell(`C${r}`).value = prod.group;
+    applyNormal(ws.getCell(`C${r}`));
+
+    // Cost elements
+    const costCols = [];
+    elementNames.forEach((eName, eIdx) => {
+      const colIdx = 4 + eIdx; // 1-indexed column
+      const cell = ws.getCell(r, colIdx);
+      const element = (prod.costElements || []).find(e => e.name === eName);
+      cell.value = element ? element.cost : 0;
+      cell.numFmt = STYLES.currencyFormat;
+      applyInput(cell);
+      costCols.push(cell.address.replace(/\d+/, ''));
+    });
+
+    // Total Cost = SUM of cost element columns
+    const totalCostCol = 4 + maxElements;
+    const firstCostCol = String.fromCharCode(67 + 1); // D
+    const lastCostCol = String.fromCharCode(67 + maxElements);
+    const tcCell = ws.getCell(r, totalCostCol);
+    tcCell.value = { formula: `SUM(${firstCostCol}${r}:${lastCostCol}${r})` };
+    tcCell.numFmt = STYLES.currencyFormat;
+    applyFormula(tcCell);
+
+    // Target Margin
+    const marginCol = totalCostCol + 1;
+    const mCell = ws.getCell(r, marginCol);
+    mCell.value = prod.targetMargin || 0.35;
+    mCell.numFmt = STYLES.percentFormat;
+    applyInput(mCell);
+
+    // Sale Price = Total Cost / (1 - Margin)
+    const priceCol = marginCol + 1;
+    const tcAddr = tcCell.address.replace(/\d+/, '');
+    const mAddr = mCell.address.replace(/\d+/, '');
+    const pCell = ws.getCell(r, priceCol);
+    pCell.value = { formula: `IFERROR(${tcAddr}${r}/(1-${mAddr}${r}),0)` };
+    pCell.numFmt = STYLES.currencyFormat;
+    applyFormula(pCell);
+
+    // Monthly Volume
+    const volCol = priceCol + 1;
+    const vCell = ws.getCell(r, volCol);
+    vCell.value = prod.monthlyVolume || 0;
+    applyInput(vCell);
+
+    // Monthly Revenue = Sale Price * Volume
+    const revCol = volCol + 1;
+    const pAddr = pCell.address.replace(/\d+/, '');
+    const vAddr = vCell.address.replace(/\d+/, '');
+    const rCell = ws.getCell(r, revCol);
+    rCell.value = { formula: `${pAddr}${r}*${vAddr}${r}` };
+    rCell.numFmt = STYLES.currencyFormat;
+    applyFormula(rCell);
+  });
+
+  // Totals row
+  const totRow = 5 + products.length + 1;
+  ws.getCell(`B${totRow}`).value = 'TOTAL';
+  for (let c = 1; c <= headerLabels.length; c++) applySection(ws.getCell(totRow, c));
+
+  const revCol = 4 + maxElements + 4;
+  const revColLetter = ws.getCell(5, revCol).address.replace(/\d+/, '');
+  ws.getCell(totRow, revCol).value = { formula: `SUM(${revColLetter}5:${revColLetter}${totRow - 1})` };
+  ws.getCell(totRow, revCol).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(totRow, revCol));
+}
+
+function buildGeoPurchaseSheet(wb, draft) {
+  const ws = wb.addWorksheet('3A. Geo Purchase Costs', { properties: { tabColor: { argb: 'FFBF8F00' } } });
+  const products = draft.products || [];
+  const cities = draft.cities || [];
+
+  const cols = [{ width: 5 }, { width: 25 }];
+  cities.forEach(() => cols.push({ width: 15 }));
+  ws.columns = cols;
+
+  ws.getCell('B1').value = 'Geo Purchase Costs \u2014 City-wise Procurement';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['#', 'Product'];
+  cities.forEach(c => headers.push(c.cityName));
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  products.forEach((prod, pIdx) => {
+    const r = 4 + pIdx;
+    ws.getCell(`A${r}`).value = pIdx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    cities.forEach((city, cIdx) => {
+      const cell = ws.getCell(r, 3 + cIdx);
+      const cityProd = (city.products || []).find(p => p.productName === prod.name);
+      cell.value = cityProd ? cityProd.purchaseCost : 0;
+      cell.numFmt = STYLES.currencyFormat;
+      applyInput(cell);
+    });
+  });
+}
+
+function buildGeoSalePricesSheet(wb, draft) {
+  const ws = wb.addWorksheet('3B. Geo Sale Prices', { properties: { tabColor: { argb: 'FFBF8F00' } } });
+  const products = draft.products || [];
+  const cities = draft.cities || [];
+
+  const cols = [{ width: 5 }, { width: 25 }];
+  cities.forEach(() => cols.push({ width: 15 }));
+  ws.columns = cols;
+
+  ws.getCell('B1').value = 'Geo Sale Prices \u2014 City-wise Selling Prices';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['#', 'Product'];
+  cities.forEach(c => headers.push(c.cityName));
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  products.forEach((prod, pIdx) => {
+    const r = 4 + pIdx;
+    ws.getCell(`A${r}`).value = pIdx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    cities.forEach((city, cIdx) => {
+      const cell = ws.getCell(r, 3 + cIdx);
+      const cityProd = (city.products || []).find(p => p.productName === prod.name);
+      cell.value = cityProd ? cityProd.salePrice : 0;
+      cell.numFmt = STYLES.currencyFormat;
+      applyInput(cell);
+    });
+  });
+}
+
+function buildGeoSelectorSheet(wb, draft) {
+  const ws = wb.addWorksheet('3C. Geo Selector', { properties: { tabColor: { argb: 'FFBF8F00' } } });
+  ws.columns = [
+    { width: 5 }, { width: 25 }, { width: 15 }, { width: 15 },
+    { width: 12 }, { width: 15 }, { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Geo Selector \u2014 Monthly P&L per Product';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  ws.getCell('B3').value = 'Selected City:';
+  ws.getCell('B3').font = { bold: true };
+  const cityCell = ws.getCell('C3');
+  cityCell.value = (draft.cities && draft.cities[0]?.cityName) || 'N/A';
+  applyInput(cityCell);
+
+  const headers = ['#', 'Product', 'Purchase Cost', 'Sale Price', 'Margin %', 'Monthly Vol', 'Monthly Revenue', 'Monthly Profit'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(5, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const products = draft.products || [];
+  products.forEach((prod, idx) => {
+    const r = 6 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    // Purchase cost from 3A (cross-ref first city)
+    const pcCell = ws.getCell(`C${r}`);
+    pcCell.value = { formula: `'3A. Geo Purchase Costs'!C${4 + idx}` };
+    pcCell.numFmt = STYLES.currencyFormat;
+    applyCrossRef(pcCell);
+
+    // Sale price from 3B
+    const spCell = ws.getCell(`D${r}`);
+    spCell.value = { formula: `'3B. Geo Sale Prices'!C${4 + idx}` };
+    spCell.numFmt = STYLES.currencyFormat;
+    applyCrossRef(spCell);
+
+    // Margin % = (SP - PC) / SP
+    const mgCell = ws.getCell(`E${r}`);
+    mgCell.value = { formula: `IFERROR((D${r}-C${r})/D${r},0)` };
+    mgCell.numFmt = STYLES.percentFormat;
+    applyFormula(mgCell);
+
+    // Monthly Volume
+    const volCell = ws.getCell(`F${r}`);
+    volCell.value = prod.monthlyVolume || 0;
+    applyInput(volCell);
+
+    // Monthly Revenue = SP * Vol
+    const revCell = ws.getCell(`G${r}`);
+    revCell.value = { formula: `D${r}*F${r}` };
+    revCell.numFmt = STYLES.currencyFormat;
+    applyFormula(revCell);
+
+    // Monthly Profit = (SP - PC) * Vol
+    const profCell = ws.getCell(`H${r}`);
+    profCell.value = { formula: `(D${r}-C${r})*F${r}` };
+    profCell.numFmt = STYLES.currencyFormat;
+    applyFormula(profCell);
+  });
+}
+
+function buildAdminSheet(wb, draft) {
+  const ws = wb.addWorksheet('3D. Admin & Other Expenses', { properties: { tabColor: { argb: 'FFC00000' } } });
+  ws.columns = [{ width: 5 }, { width: 20 }, { width: 30 }, { width: 15 }, { width: 15 }];
+
+  ws.getCell('B1').value = 'Admin & Other Expenses';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['#', 'Category', 'Expense Item', 'Monthly (\u20B9)', 'Annual (\u20B9)'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const expenses = draft.adminExpenses || [];
+  const categories = ['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin'];
+  let row = 4;
+
+  for (const cat of categories) {
+    const catExpenses = expenses.filter(e => e.category === cat);
+    if (catExpenses.length === 0) continue;
+
+    ws.getCell(`B${row}`).value = cat.toUpperCase();
+    for (let c = 1; c <= 5; c++) applySection(ws.getCell(row, c));
+    row++;
+
+    catExpenses.forEach((exp, idx) => {
+      ws.getCell(`A${row}`).value = idx + 1;
+      applyNormal(ws.getCell(`A${row}`));
+
+      ws.getCell(`B${row}`).value = exp.category;
+      applyNormal(ws.getCell(`B${row}`));
+
+      ws.getCell(`C${row}`).value = exp.item;
+      applyNormal(ws.getCell(`C${row}`));
+
+      const mCell = ws.getCell(`D${row}`);
+      mCell.value = exp.monthlyAmount;
+      mCell.numFmt = STYLES.currencyFormat;
+      applyInput(mCell);
+
+      const aCell = ws.getCell(`E${row}`);
+      aCell.value = { formula: `D${row}*12` };
+      aCell.numFmt = STYLES.currencyFormat;
+      applyFormula(aCell);
+
+      row++;
+    });
+  }
+
+  // Totals
+  row++;
+  ws.getCell(`C${row}`).value = 'TOTAL ADMIN EXPENSES';
+  applySection(ws.getCell(`C${row}`));
+  for (let c = 1; c <= 5; c++) applySection(ws.getCell(row, c));
+
+  ws.getCell(`D${row}`).value = { formula: `SUM(D4:D${row - 1})` };
+  ws.getCell(`D${row}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`D${row}`));
+
+  ws.getCell(`E${row}`).value = { formula: `SUM(E4:E${row - 1})` };
+  ws.getCell(`E${row}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`E${row}`));
+}
+
+function buildCapexSheet(wb, draft) {
+  const ws = wb.addWorksheet('3E. Capital Expenses (CAPEX)', { properties: { tabColor: { argb: 'FF7030A0' } } });
+  ws.columns = [
+    { width: 5 }, { width: 20 }, { width: 25 }, { width: 15 },
+    { width: 12 }, { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Capital Expenses (CAPEX) \u2014 Fixed Assets & Depreciation';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['#', 'Category', 'Asset', 'Cost (\u20B9)', 'Useful Life (Yrs)', 'Annual Dep (\u20B9)', 'Monthly Dep (\u20B9)'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const items = draft.capexItems || [];
+  items.forEach((item, idx) => {
+    const r = 4 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = item.category;
+    applyNormal(ws.getCell(`B${r}`));
+
+    ws.getCell(`C${r}`).value = item.item;
+    applyNormal(ws.getCell(`C${r}`));
+
+    const costCell = ws.getCell(`D${r}`);
+    costCell.value = item.cost;
+    costCell.numFmt = STYLES.currencyFormat;
+    applyInput(costCell);
+
+    const lifeCell = ws.getCell(`E${r}`);
+    lifeCell.value = item.usefulLife;
+    applyInput(lifeCell);
+
+    // Annual Depreciation = Cost / Useful Life (SLM)
+    const adCell = ws.getCell(`F${r}`);
+    adCell.value = { formula: `IFERROR(D${r}/E${r},0)` };
+    adCell.numFmt = STYLES.currencyFormat;
+    applyFormula(adCell);
+
+    // Monthly Depreciation
+    const mdCell = ws.getCell(`G${r}`);
+    mdCell.value = { formula: `F${r}/12` };
+    mdCell.numFmt = STYLES.currencyFormat;
+    applyFormula(mdCell);
+  });
+
+  // Totals
+  const totRow = 4 + items.length + 1;
+  ws.getCell(`C${totRow}`).value = 'TOTAL CAPEX';
+  for (let c = 1; c <= 7; c++) applySection(ws.getCell(totRow, c));
+
+  ws.getCell(`D${totRow}`).value = { formula: `SUM(D4:D${totRow - 1})` };
+  ws.getCell(`D${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`D${totRow}`));
+
+  ws.getCell(`F${totRow}`).value = { formula: `SUM(F4:F${totRow - 1})` };
+  ws.getCell(`F${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`F${totRow}`));
+
+  ws.getCell(`G${totRow}`).value = { formula: `SUM(G4:G${totRow - 1})` };
+  ws.getCell(`G${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`G${totRow}`));
+}
+
+function buildFinanceSheet(wb, draft) {
+  const ws = wb.addWorksheet('3F. Finance Costs', { properties: { tabColor: { argb: 'FF7030A0' } } });
+  ws.columns = [
+    { width: 5 }, { width: 25 }, { width: 15 }, { width: 12 },
+    { width: 12 }, { width: 15 }, { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Finance Costs \u2014 Loans & EMI';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  ws.getCell('B2').value = 'EMI = PMT(rate/12, tenure, -principal)';
+  ws.getCell('B2').font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+
+  const headers = ['#', 'Loan Description', 'Principal (\u20B9)', 'Rate %', 'Tenure (Mo)', 'Monthly EMI (\u20B9)', 'Monthly Interest (\u20B9)', 'Total Interest (\u20B9)'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(4, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const loans = draft.loans || [];
+  loans.forEach((loan, idx) => {
+    const r = 5 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = loan.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    const pCell = ws.getCell(`C${r}`);
+    pCell.value = loan.principal;
+    pCell.numFmt = STYLES.currencyFormat;
+    applyInput(pCell);
+
+    const rCell = ws.getCell(`D${r}`);
+    rCell.value = loan.interestRate;
+    rCell.numFmt = STYLES.percentFormat;
+    applyInput(rCell);
+
+    const tCell = ws.getCell(`E${r}`);
+    tCell.value = loan.tenureMonths;
+    applyInput(tCell);
+
+    // EMI = PMT(rate/12, tenure, -principal)
+    const emiCell = ws.getCell(`F${r}`);
+    emiCell.value = { formula: `IFERROR(-PMT(D${r}/12,E${r},C${r}),0)` };
+    emiCell.numFmt = STYLES.currencyFormat;
+    applyFormula(emiCell);
+
+    // Monthly Interest (approximate first month) = Principal * Rate / 12
+    const intCell = ws.getCell(`G${r}`);
+    intCell.value = { formula: `C${r}*D${r}/12` };
+    intCell.numFmt = STYLES.currencyFormat;
+    applyFormula(intCell);
+
+    // Total Interest = (EMI * Tenure) - Principal
+    const tiCell = ws.getCell(`H${r}`);
+    tiCell.value = { formula: `(F${r}*E${r})-C${r}` };
+    tiCell.numFmt = STYLES.currencyFormat;
+    applyFormula(tiCell);
+  });
+
+  // Totals
+  const totRow = 5 + loans.length + 1;
+  ws.getCell(`B${totRow}`).value = 'TOTAL FINANCE COSTS';
+  for (let c = 1; c <= 8; c++) applySection(ws.getCell(totRow, c));
+
+  ws.getCell(`C${totRow}`).value = { formula: `SUM(C5:C${totRow - 1})` };
+  ws.getCell(`C${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`C${totRow}`));
+
+  ws.getCell(`F${totRow}`).value = { formula: `SUM(F5:F${totRow - 1})` };
+  ws.getCell(`F${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`F${totRow}`));
+
+  ws.getCell(`G${totRow}`).value = { formula: `SUM(G5:G${totRow - 1})` };
+  ws.getCell(`G${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`G${totRow}`));
+}
+
+function buildProductMixSheet(wb, draft) {
+  const ws = wb.addWorksheet('4. Product Market Mix', { properties: { tabColor: { argb: 'FF00B050' } } });
+  ws.columns = [
+    { width: 5 }, { width: 25 }, { width: 10 }, { width: 15 },
+    { width: 15 }, { width: 12 }, { width: 15 }, { width: 15 },
+    { width: 15 }, { width: 15 },
+  ];
+
+  ws.getCell('B1').value = 'Product Market Mix \u2014 Cost Build-Up & Break-Even';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['#', 'Product', 'Active?', 'Total Cost/Unit', 'Sale Price', 'Margin %', 'Contribution/Unit', 'Monthly Vol', 'Monthly Contrib', 'Break-Even Units'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const products = draft.products || [];
+  products.forEach((prod, idx) => {
+    const r = 4 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    // YES/NO toggle
+    const toggleCell = ws.getCell(`C${r}`);
+    toggleCell.value = 'YES';
+    applyInput(toggleCell);
+
+    // Total Cost from Sheet 3
+    const costCol = 4 + (draft.products?.[0]?.costElements?.length || 5); // Total Cost column in Sheet 3
+    const tcCell = ws.getCell(`D${r}`);
+    const totalCost = (prod.costElements || []).reduce((sum, e) => sum + (e.cost || 0), 0);
+    tcCell.value = totalCost;
+    tcCell.numFmt = STYLES.currencyFormat;
+    applyCrossRef(tcCell);
+
+    // Sale Price = Cost / (1 - Margin)
+    const spCell = ws.getCell(`E${r}`);
+    const margin = prod.targetMargin || 0.35;
+    spCell.value = totalCost > 0 ? totalCost / (1 - margin) : 0;
+    spCell.numFmt = STYLES.currencyFormat;
+    applyFormula(spCell);
+
+    // Margin %
+    const mgCell = ws.getCell(`F${r}`);
+    mgCell.value = { formula: `IFERROR((E${r}-D${r})/E${r},0)` };
+    mgCell.numFmt = STYLES.percentFormat;
+    applyFormula(mgCell);
+
+    // Contribution/Unit = SP - Cost (only if Active = YES)
+    const cuCell = ws.getCell(`G${r}`);
+    cuCell.value = { formula: `IF(C${r}="YES",E${r}-D${r},0)` };
+    cuCell.numFmt = STYLES.currencyFormat;
+    applyFormula(cuCell);
+
+    // Monthly Volume
+    const volCell = ws.getCell(`H${r}`);
+    volCell.value = prod.monthlyVolume || 0;
+    applyInput(volCell);
+
+    // Monthly Contribution = Contrib/Unit * Vol
+    const mcCell = ws.getCell(`I${r}`);
+    mcCell.value = { formula: `G${r}*H${r}` };
+    mcCell.numFmt = STYLES.currencyFormat;
+    applyFormula(mcCell);
+
+    // Break-Even = Fixed Costs / Contribution per Unit (placeholder)
+    const beCell = ws.getCell(`J${r}`);
+    beCell.value = { formula: `IFERROR(ROUND(('3D. Admin & Other Expenses'!D${4 + (draft.adminExpenses?.length || 0) + 1}+'1. HR Costs'!H${5 + (draft.employees?.length || 0) + 3})/G${r},0),0)` };
+    applyFormula(beCell);
+  });
+
+  // Totals
+  const totRow = 4 + products.length + 1;
+  ws.getCell(`B${totRow}`).value = 'TOTAL';
+  for (let c = 1; c <= 10; c++) applySection(ws.getCell(totRow, c));
+
+  ws.getCell(`I${totRow}`).value = { formula: `SUM(I4:I${totRow - 1})` };
+  ws.getCell(`I${totRow}`).numFmt = STYLES.currencyFormat;
+  applyFormula(ws.getCell(`I${totRow}`));
+}
+
+function buildLTVSheet(wb, draft) {
+  const ws = wb.addWorksheet('5. Customer LTV Analysis', { properties: { tabColor: { argb: 'FF0070C0' } } });
+  ws.columns = [{ width: 5 }, { width: 30 }, { width: 20 }, { width: 20 }];
+
+  ws.getCell('B1').value = 'Customer Lifetime Value (LTV) Analysis';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const ltv = draft.ltvParams || {};
+
+  // Input parameters
+  const params = [
+    ['', 'Parameter', 'Value', 'Notes'],
+    ['1', 'Average Order Value (AOV)', ltv.avgOrderValue || 0, 'Per transaction'],
+    ['2', 'Purchase Frequency/Year', ltv.purchaseFrequency || 12, 'Times per year'],
+    ['3', 'Customer Retention Rate', ltv.retentionRate || 0.7, 'Annual'],
+    ['4', 'Gross Margin', ltv.grossMargin || 0.4, ''],
+    ['5', 'Discount Rate', ltv.discountRate || 0.1, 'For DCF method'],
+  ];
+
+  params.forEach((row, i) => {
+    const r = 3 + i;
+    ws.getCell(`A${r}`).value = row[0];
+    ws.getCell(`B${r}`).value = row[1];
+    ws.getCell(`C${r}`).value = row[2];
+    ws.getCell(`D${r}`).value = row[3];
+
+    if (i === 0) {
+      applyHeader(ws.getCell(`A${r}`));
+      applyHeader(ws.getCell(`B${r}`));
+      applyHeader(ws.getCell(`C${r}`));
+      applyHeader(ws.getCell(`D${r}`));
+    } else {
+      applyNormal(ws.getCell(`A${r}`));
+      applyNormal(ws.getCell(`B${r}`));
+      applyInput(ws.getCell(`C${r}`));
+      applyNormal(ws.getCell(`D${r}`));
+      if (i === 3 || i === 4 || i === 5) ws.getCell(`C${r}`).numFmt = STYLES.percentFormat;
+      else ws.getCell(`C${r}`).numFmt = STYLES.currencyFormat;
+    }
+  });
+
+  // Calculated LTV values
+  const calcStart = 3 + params.length + 1;
+  const calcRows = [
+    ['', 'Metric', 'Formula', 'Result'],
+    ['1', 'Annual Revenue/Customer', 'AOV \u00D7 Frequency', ''],
+    ['2', 'Customer Lifespan (years)', '1 / (1 - Retention)', ''],
+    ['3', 'Simple LTV', 'AOV \u00D7 Freq \u00D7 Lifespan \u00D7 Margin', ''],
+    ['4', 'LTV:CAC Ratio', 'LTV / CAC', ''],
+  ];
+
+  calcRows.forEach((row, i) => {
+    const r = calcStart + i;
+    ws.getCell(`A${r}`).value = row[0];
+    ws.getCell(`B${r}`).value = row[1];
+    ws.getCell(`C${r}`).value = row[2];
+
+    if (i === 0) {
+      applyHeader(ws.getCell(`A${r}`));
+      applyHeader(ws.getCell(`B${r}`));
+      applyHeader(ws.getCell(`C${r}`));
+      applyHeader(ws.getCell(`D${r}`));
+      ws.getCell(`D${r}`).value = row[3];
+    } else {
+      applyNormal(ws.getCell(`A${r}`));
+      applyNormal(ws.getCell(`B${r}`));
+      applyNormal(ws.getCell(`C${r}`));
+
+      const dCell = ws.getCell(`D${r}`);
+      if (i === 1) {
+        // Annual Revenue = AOV * Frequency
+        dCell.value = { formula: `C4*C5` };
+        dCell.numFmt = STYLES.currencyFormat;
+      } else if (i === 2) {
+        // Lifespan = 1 / (1 - Retention)
+        dCell.value = { formula: `IFERROR(1/(1-C6),1)` };
+        dCell.numFmt = '#,##0.0';
+      } else if (i === 3) {
+        // Simple LTV
+        dCell.value = { formula: `D${calcStart + 1}*D${calcStart + 2}*C7` };
+        dCell.numFmt = STYLES.currencyFormat;
+      } else if (i === 4) {
+        // LTV:CAC ratio (refs marketing blended CAC)
+        const mktTotRow = 5 + (draft.marketingChannels?.length || 0) + 1;
+        dCell.value = { formula: `IFERROR(D${calcStart + 3}/'2. Marketing Costs'!G${mktTotRow},0)` };
+        dCell.numFmt = '#,##0.0x';
+      }
+      applyFormula(dCell);
+    }
+  });
+}
+
+function buildTargetProfitSheet(wb, draft) {
+  const ws = wb.addWorksheet('6. Target Profit Calculator', { properties: { tabColor: { argb: 'FFED7D31' } } });
+  ws.columns = [{ width: 5 }, { width: 30 }, { width: 20 }, { width: 20 }];
+
+  ws.getCell('B1').value = 'Target Profit Calculator';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+  ws.getCell('B2').value = 'Reverse-engineer: How much do you need to sell to hit your profit target?';
+  ws.getCell('B2').font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+
+  // Target Profit input
+  ws.getCell('B4').value = 'Target Monthly Profit (\u20B9):';
+  ws.getCell('B4').font = { bold: true };
+  const tpCell = ws.getCell('C4');
+  tpCell.value = 0;
+  tpCell.numFmt = STYLES.currencyFormat;
+  applyInput(tpCell);
+
+  // Fixed costs summary
+  ws.getCell('B6').value = 'Total Fixed Costs (Monthly):';
+  const fcCell = ws.getCell('C6');
+  const adminTotRow = 4 + (draft.adminExpenses?.length || 0) + (new Set((draft.adminExpenses || []).map(e => e.category)).size) + 1;
+  const hrTotRow = 5 + (draft.employees?.length || 0) + 3 + 1;
+  fcCell.value = { formula: `'3D. Admin & Other Expenses'!D${adminTotRow}+'1. HR Costs'!H${hrTotRow}` };
+  fcCell.numFmt = STYLES.currencyFormat;
+  applyCrossRef(fcCell);
+
+  // Required total contribution
+  ws.getCell('B7').value = 'Required Total Contribution:';
+  const rcCell = ws.getCell('C7');
+  rcCell.value = { formula: `C4+C6` };
+  rcCell.numFmt = STYLES.currencyFormat;
+  applyFormula(rcCell);
+
+  // Per-product required units
+  const headers = ['#', 'Product', 'Revenue Mix %', 'Required Revenue', 'Required Units/Month'];
+  const hRow = 9;
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(hRow, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const products = draft.products || [];
+  const equalMix = products.length > 0 ? 1 / products.length : 0;
+
+  products.forEach((prod, idx) => {
+    const r = hRow + 1 + idx;
+    ws.getCell(`A${r}`).value = idx + 1;
+    applyNormal(ws.getCell(`A${r}`));
+
+    ws.getCell(`B${r}`).value = prod.name;
+    applyNormal(ws.getCell(`B${r}`));
+
+    const mixCell = ws.getCell(`C${r}`);
+    mixCell.value = equalMix;
+    mixCell.numFmt = STYLES.percentFormat;
+    applyInput(mixCell);
+
+    const reqRevCell = ws.getCell(`D${r}`);
+    reqRevCell.value = { formula: `C7*C${r}` };
+    reqRevCell.numFmt = STYLES.currencyFormat;
+    applyFormula(reqRevCell);
+
+    const totalCost = (prod.costElements || []).reduce((sum, e) => sum + (e.cost || 0), 0);
+    const margin = prod.targetMargin || 0.35;
+    const salePrice = totalCost > 0 ? totalCost / (1 - margin) : 1;
+    const contribution = salePrice - totalCost;
+
+    const reqUnitsCell = ws.getCell(`E${r}`);
+    reqUnitsCell.value = { formula: `IFERROR(ROUND(D${r}/${contribution > 0 ? contribution : 1},0),0)` };
+    applyFormula(reqUnitsCell);
+  });
+}
+
+function buildCashFlowSheet(wb, draft) {
+  const ws = wb.addWorksheet('7. Cash Flow', { properties: { tabColor: { argb: 'FF00B0F0' } } });
+
+  // 12-month projection
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const cols = [{ width: 5 }, { width: 30 }];
+  months.forEach(() => cols.push({ width: 14 }));
+  cols.push({ width: 16 }); // Total
+  ws.columns = cols;
+
+  ws.getCell('B1').value = 'Cash Flow Projection \u2014 12 Months';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  // Month headers
+  ws.getCell('B3').value = '';
+  applyHeader(ws.getCell('A3'));
+  applyHeader(ws.getCell('B3'));
+  months.forEach((m, i) => {
+    const cell = ws.getCell(3, 3 + i);
+    cell.value = m;
+    applyHeader(cell);
+  });
+  const totHeader = ws.getCell(3, 15);
+  totHeader.value = 'TOTAL';
+  applyHeader(totHeader);
+
+  // Row structure
+  const lineItems = [
+    { label: 'REVENUE', type: 'section' },
+    { label: 'Product Sales', type: 'input' },
+    { label: 'Other Income', type: 'input' },
+    { label: 'Total Revenue', type: 'formula' },
+    { label: '', type: 'spacer' },
+    { label: 'EXPENSES', type: 'section' },
+    { label: 'COGS / Manufacturing', type: 'input' },
+    { label: 'HR Costs', type: 'crossref' },
+    { label: 'Marketing Costs', type: 'crossref' },
+    { label: 'Admin Expenses', type: 'crossref' },
+    { label: 'Depreciation', type: 'crossref' },
+    { label: 'Loan EMI', type: 'crossref' },
+    { label: 'Total Expenses', type: 'formula' },
+    { label: '', type: 'spacer' },
+    { label: 'NET CASH FLOW', type: 'formula' },
+    { label: 'Cumulative Cash Flow', type: 'formula' },
+  ];
+
+  let row = 4;
+  lineItems.forEach((item) => {
+    ws.getCell(`B${row}`).value = item.label;
+
+    for (let c = 1; c <= 15; c++) {
+      const cell = ws.getCell(row, c);
+      if (item.type === 'section') applySection(cell);
+      else if (item.type === 'input') { applyInput(cell); cell.numFmt = STYLES.currencyFormat; }
+      else if (item.type === 'formula') { applyFormula(cell); cell.numFmt = STYLES.currencyFormat; }
+      else if (item.type === 'crossref') { applyCrossRef(cell); cell.numFmt = STYLES.currencyFormat; }
+      else applyNormal(cell);
+    }
+
+    if (item.type === 'input' || item.type === 'crossref') {
+      // Set value 0 for each month
+      for (let m = 0; m < 12; m++) {
+        ws.getCell(row, 3 + m).value = 0;
+      }
+    }
+
+    row++;
+  });
+}
+
+function buildKPIDashboardSheet(wb, draft) {
+  const ws = wb.addWorksheet('8. KPI Dashboard', { properties: { tabColor: { argb: 'FF00B050' } } });
+  ws.columns = [{ width: 5 }, { width: 35 }, { width: 20 }, { width: 30 }];
+
+  ws.getCell('B1').value = 'KPI Dashboard';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const kpis = [
+    ['', 'KPI', 'Value', 'Formula/Source'],
+    // Financial KPIs
+    ['', 'FINANCIAL KPIs', '', ''],
+    ['1', 'Gross Margin %', '', 'Total Contribution / Total Revenue'],
+    ['2', 'Net Profit Margin %', '', '(Revenue - All Costs) / Revenue'],
+    ['3', 'Monthly Burn Rate', '', 'Total Monthly Expenses'],
+    ['4', 'Runway (months)', '', 'Cash Balance / Burn Rate'],
+    ['5', 'Break-Even Point (units)', '', 'Fixed Costs / Weighted Avg Contribution'],
+    // Operational KPIs
+    ['', 'OPERATIONAL KPIs', '', ''],
+    ['6', 'Revenue per Employee', '', 'Monthly Revenue / Total Employees'],
+    ['7', 'Cost per Employee', '', 'Monthly HR Cost / Total Employees'],
+    ['8', 'Capacity Utilization', '', 'Actual Volume / Max Capacity'],
+    // Marketing KPIs
+    ['', 'MARKETING KPIs', '', ''],
+    ['9', 'Customer Acquisition Cost (CAC)', '', 'Total Marketing Spend / New Customers'],
+    ['10', 'LTV:CAC Ratio', '', 'Customer LTV / CAC'],
+    ['11', 'Marketing ROI', '', '(Revenue from Marketing - Marketing Cost) / Marketing Cost'],
+  ];
+
+  kpis.forEach((row, i) => {
+    const r = 3 + i;
+    ws.getCell(`A${r}`).value = row[0];
+    ws.getCell(`B${r}`).value = row[1];
+    ws.getCell(`C${r}`).value = row[2];
+    ws.getCell(`D${r}`).value = row[3];
+
+    if (i === 0) {
+      for (let c = 1; c <= 4; c++) applyHeader(ws.getCell(r, c));
+    } else if (row[0] === '') {
+      for (let c = 1; c <= 4; c++) applySection(ws.getCell(r, c));
+    } else {
+      applyNormal(ws.getCell(`A${r}`));
+      applyNormal(ws.getCell(`B${r}`));
+      applyFormula(ws.getCell(`C${r}`));
+      ws.getCell(`C${r}`).numFmt = STYLES.currencyFormat;
+      applyNormal(ws.getCell(`D${r}`));
+    }
+  });
+}
+
+function buildScenarioSheet(wb, draft) {
+  const ws = wb.addWorksheet('9. Scenario Analysis', { properties: { tabColor: { argb: 'FFFFC000' } } });
+  ws.columns = [{ width: 5 }, { width: 30 }, { width: 18 }, { width: 18 }, { width: 18 }];
+
+  ws.getCell('B1').value = 'Scenario Analysis \u2014 Best / Base / Worst';
+  ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
+
+  const headers = ['', 'Metric', 'Best Case', 'Base Case', 'Worst Case'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(3, i + 1);
+    cell.value = h;
+    applyHeader(cell);
+  });
+
+  const scenarios = [
+    ['1', 'Revenue Multiplier', 1.2, 1.0, 0.7],
+    ['2', 'Cost Multiplier', 0.9, 1.0, 1.15],
+    ['3', 'Monthly Revenue', '', '', ''],
+    ['4', 'Monthly Costs', '', '', ''],
+    ['5', 'Monthly Profit', '', '', ''],
+    ['6', 'Profit Margin %', '', '', ''],
+    ['7', 'Break-Even Months', '', '', ''],
+  ];
+
+  scenarios.forEach((row, i) => {
+    const r = 4 + i;
+    ws.getCell(`A${r}`).value = row[0];
+    applyNormal(ws.getCell(`A${r}`));
+    ws.getCell(`B${r}`).value = row[1];
+    applyNormal(ws.getCell(`B${r}`));
+
+    for (let c = 3; c <= 5; c++) {
+      const cell = ws.getCell(r, c);
+      if (i <= 1) {
+        cell.value = row[c - 1];
+        applyInput(cell);
+        if (i === 1) cell.numFmt = '0.00x';
+      } else {
+        cell.value = 0;
+        cell.numFmt = STYLES.currencyFormat;
+        applyFormula(cell);
+      }
+    }
+  });
+}
+
+export default generateWorkbook;
