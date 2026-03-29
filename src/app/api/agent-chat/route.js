@@ -3,7 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, generateObject } from 'ai';
 import { requireAuth } from '@/lib/auth.js';
 import { createConversation, getConversation, updateConversation } from '@/lib/db/conversations.js';
-import { buildSystemPrompt, DRAFT_GENERATION_PROMPT, EXTRACTION_PROMPT } from '@/lib/ai/prompts.js';
+import { buildSystemPrompt, DRAFT_GENERATION_PROMPT, EXTRACTION_PROMPT, EDIT_PROMPT } from '@/lib/ai/prompts.js';
 import { UnitEconomicsDraftSchema, BusinessExtractionSchema } from '@/lib/ai/schemas.js';
 import { searchBusinessContext, formatEnrichmentForPrompt } from '@/lib/exa/search.js';
 
@@ -287,6 +287,42 @@ async function handleConversational(step, message, kg, msgs) {
   return { aiResponse: responseText, nextStep: step, kg };
 }
 
+/**
+ * EDIT HANDLER: User requests changes to an existing draft.
+ * Takes the current draft + user's edit request, returns a fully updated draft.
+ * Pattern follows handleGenerate() but uses EDIT_PROMPT instead of DRAFT_GENERATION_PROMPT.
+ */
+async function handleEdit(message, kg) {
+  const currentDraft = kg.draft;
+  if (!currentDraft) {
+    // No draft to edit \u2014 fall back to conversational
+    return { aiResponse: 'I don\u2019t have a model to edit yet. Please describe your business first so I can generate one.', nextStep: kg.step || 'extract', kg, draft: null };
+  }
+
+  const editPrompt = `${EDIT_PROMPT}\n\n## Current Draft:\n\`\`\`json\n${JSON.stringify(currentDraft, null, 2)}\n\`\`\`\n\n## User's Edit Request:\n"${message}"`;
+
+  const { object: updatedDraft } = await generateObjectSafe({
+    model: model,
+    schema: UnitEconomicsDraftSchema,
+    prompt: editPrompt,
+    system: buildSystemPrompt('confirm_review', kg),
+  }, 2); // 2 retries
+
+  // Update KG with new draft
+  kg.draft = updatedDraft;
+  kg.companyName = updatedDraft.companyName || kg.companyName;
+  kg.industry = updatedDraft.industry || kg.industry;
+
+  // Generate a concise summary of what changed
+  const { text: summaryText } = await generateText({
+    model: model,
+    system: `You are a helpful financial analyst. Summarize the changes made to the model in 2\u20134 bullet points. Be specific about what numbers changed. Use \u20B9 for INR amounts.`,
+    prompt: `The user asked: "${message}"\n\nThe model has been updated. Summarize what changed concisely.\n\nThen ask if they want to make more changes or download the Excel.\n\n[SUGGESTIONS: ["Looks good, download Excel!", "Make more changes", "Show me the updated model"]]`,
+  });
+
+  return { aiResponse: summaryText, nextStep: 'confirm_review', draft: updatedDraft, kg };
+}
+
 /* ══════════════════════════════════════════════════════
    Main POST handler
    ══════════════════════════════════════════════════════ */
@@ -399,13 +435,38 @@ export async function POST(request) {
           aiResponse = `Your **17-sheet Unit Economics model** is ready! Click the **Download Excel** button below to get your file.\n\nYou can also continue chatting to adjust any section.\n\n[SUGGESTIONS: ["Download Excel", "Adjust HR costs", "Change margins", "Start new model"]]`;
           currentStep = 'complete';
         } else {
-          const convResult = await handleConversational('confirm_review', message, kg, msgs);
-          aiResponse = convResult.aiResponse;
+          // Route to handleEdit — user wants to change the model
+          const editResult = await handleEdit(message, kg);
+          aiResponse = editResult.aiResponse;
+          kg = editResult.kg;
+          if (editResult.draft) {
+            draft = editResult.draft;
+          }
+          currentStep = editResult.nextStep;
         }
 
       } else if (currentStep === 'complete') {
-        const convResult = await handleConversational('complete', message, kg, msgs);
-        aiResponse = convResult.aiResponse;
+        const downloadPhrases = ['download', 'generate excel', 'get my file', 'excel'];
+        const wantsDownload = downloadPhrases.some(p => message.toLowerCase().includes(p));
+        const newModelPhrases = ['start new', 'new model', 'start over', 'fresh'];
+        const wantsNewModel = newModelPhrases.some(p => message.toLowerCase().includes(p));
+
+        if (wantsDownload) {
+          aiResponse = `Click the **Download Excel** button above to get your file!\n\n[SUGGESTIONS: ["Download Excel", "Make more changes", "Start new model"]]`;
+        } else if (wantsNewModel) {
+          aiResponse = `Sure! Describe your new business and I\u2019ll build a fresh Unit Economics model.\n\n[SUGGESTIONS: ["Cloud kitchen in Delhi", "SaaS startup in Bangalore", "Retail store in Pune"]]`;
+          currentStep = 'extract';
+          kg = {}; // Reset knowledge graph for new model
+        } else {
+          // Route to handleEdit — user wants to change the model
+          const editResult = await handleEdit(message, kg);
+          aiResponse = editResult.aiResponse;
+          kg = editResult.kg;
+          if (editResult.draft) {
+            draft = editResult.draft;
+          }
+          currentStep = editResult.nextStep;
+        }
 
       } else {
         // Unknown step \u2014 fall back to extract

@@ -155,3 +155,29 @@ Be thorough: infer city from location mentions, business stage from context clue
 If they mention products, list them all. If they mention team members or roles, capture that.
 For confidenceScore: rate how much of the 13-field business profile you were able to fill.
 For missingCritical: list the 1\u20133 most important missing items (e.g., "product details and pricing", "city/location", "team size").`;
+
+/**
+ * Edit prompt \u2014 used with generateObject() + UnitEconomicsDraftSchema
+ * when the user requests changes to an already-generated draft.
+ * The AI receives the FULL current draft + the user's edit request
+ * and must return a complete updated draft.
+ */
+export const EDIT_PROMPT = `You are editing an existing Unit Economics model draft based on the user's request.
+
+## Rules:
+1. You will receive the COMPLETE current draft as JSON. Apply the user's requested changes to it.
+2. Return a COMPLETE updated draft \u2014 not just the changed fields. Every field must be present.
+3. Preserve all data that the user did NOT ask to change. Do not drop or alter unrelated fields.
+4. If the user says "change head chef salary to 45000", find that employee and update monthlySalary to 45000. Keep everything else identical.
+5. If the user asks to add/remove employees, products, channels, etc., do so while keeping the rest intact.
+6. Maintain the MARGIN-FIRST PRICING rule: Sale Price = Total Cost / (1 - Target Margin%).
+7. If a cost element changes, recalculate the sale price for affected products and geo pricing.
+8. If employee count or salary changes, no downstream recalculation is needed (formulas handle it in Excel).
+9. Keep all monetary values in INR (\u20B9).
+10. If the user's request is ambiguous, make a reasonable interpretation and note it in your response.
+
+## Important:
+- Do NOT regenerate marketing channels unless explicitly asked
+- Do NOT change city pricing unless the underlying product cost changed
+- Do NOT alter assumptions unless explicitly asked
+- When changing product costs, update the corresponding city purchase costs proportionally`;

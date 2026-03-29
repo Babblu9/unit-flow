@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useUnitEconomics } from '@/context/UnitEconomicsContext';
-import { BarChart3, TrendingUp, Wallet, Users, Target, Layers } from 'lucide-react';
+import { BarChart3, TrendingUp, Wallet, Users, Target, Layers, Pencil } from 'lucide-react';
 
 /* ════════════════════════════════════════════════════════
    Theme constants — mirrors Fina AI's semantic color system
@@ -50,9 +51,14 @@ export default function SheetViewer() {
     businessInfo, employees, marketingChannels, products,
     adminExpenses, capexItems, loans, ltvParams, scenarios,
     cities, selectedCity, profitTargets, completion,
+    // Update helpers for inline editing
+    updateEmployee, updateProduct, updateProductCostElement,
+    updateMarketingChannel, updateAdminExpense, updateCapexItem,
+    updateLoan, updateLtvParam, updateCityProduct,
   } = useUnitEconomics();
 
   const data = { businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities, selectedCity, profitTargets };
+  const updaters = { updateEmployee, updateProduct, updateProductCostElement, updateMarketingChannel, updateAdminExpense, updateCapexItem, updateLoan, updateLtvParam, updateCityProduct };
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--bg-page)]">
@@ -80,7 +86,7 @@ export default function SheetViewer() {
 
       {/* ── Sheet content ── */}
       <div className="flex-1 overflow-auto p-5 excel-scroll">
-        {completion < 60 ? <EmptyState /> : <SheetContent sheetName={activeSheet} data={data} />}
+        {completion < 60 ? <EmptyState /> : <SheetContent sheetName={activeSheet} data={data} updaters={updaters} />}
       </div>
     </div>
   );
@@ -121,21 +127,21 @@ function EmptyState() {
 }
 
 /* ── Sheet router ── */
-function SheetContent({ sheetName, data }) {
+function SheetContent({ sheetName, data, updaters }) {
   const views = {
     'Instructions & Guide': () => <InstructionsView data={data} />,
-    '1. HR Costs': () => <HRView employees={data.employees} />,
+    '1. HR Costs': () => <HRView employees={data.employees} onUpdate={updaters.updateEmployee} />,
     '1.1 Rate Card': () => <RateCardView employees={data.employees} />,
-    '2. Marketing Costs': () => <MarketingView channels={data.marketingChannels} />,
-    '3. Manufacturing Costs': () => <ManufacturingView products={data.products} />,
-    '3A. Geo Purchase Costs': () => <GeoPurchaseView cities={data.cities} />,
-    '3B. Geo Sale Prices': () => <GeoSalePriceView cities={data.cities} />,
+    '2. Marketing Costs': () => <MarketingView channels={data.marketingChannels} onUpdate={updaters.updateMarketingChannel} />,
+    '3. Manufacturing Costs': () => <ManufacturingView products={data.products} onUpdate={updaters.updateProduct} />,
+    '3A. Geo Purchase Costs': () => <GeoPurchaseView cities={data.cities} onUpdate={updaters.updateCityProduct} />,
+    '3B. Geo Sale Prices': () => <GeoSalePriceView cities={data.cities} onUpdate={updaters.updateCityProduct} />,
     '3C. Geo Selector': () => <GeoSelectorView cities={data.cities} selectedCity={data.selectedCity} products={data.products} />,
-    '3D. Admin & Other Expenses': () => <AdminView expenses={data.adminExpenses} />,
-    '3E. Capital Expenses (CAPEX)': () => <CapexView items={data.capexItems} />,
-    '3F. Finance Costs': () => <FinanceView loans={data.loans} />,
+    '3D. Admin & Other Expenses': () => <AdminView expenses={data.adminExpenses} onUpdate={updaters.updateAdminExpense} />,
+    '3E. Capital Expenses (CAPEX)': () => <CapexView items={data.capexItems} onUpdate={updaters.updateCapexItem} />,
+    '3F. Finance Costs': () => <FinanceView loans={data.loans} onUpdate={updaters.updateLoan} />,
     '4. Product Market Mix': () => <ProductMixView products={data.products} />,
-    '5. Customer LTV Analysis': () => <LTVView params={data.ltvParams} />,
+    '5. Customer LTV Analysis': () => <LTVView params={data.ltvParams} onUpdate={updaters.updateLtvParam} />,
     '6. Target Profit Calculator': () => <TargetProfitView products={data.products} profitTargets={data.profitTargets} employees={data.employees} adminExpenses={data.adminExpenses} />,
     '7. Cash Flow': () => <CashFlowView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} adminExpenses={data.adminExpenses} loans={data.loans} />,
     '8. KPI Dashboard': () => <KPIDashboardView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} ltvParams={data.ltvParams} />,
@@ -201,6 +207,70 @@ function StatCard({ label, value, accent, icon: Icon }) {
 function InputCell({ children, align = 'right' }) {
   return <td className={`px-3 py-2 font-num text-${align}`} style={{ background: `${T.input}40`, color: '#0000FF' }}>{children}</td>;
 }
+
+/** Editable input cell — click to edit, blur/Enter to save */
+function EditableInputCell({ value, onChange, format = 'number', align = 'right', suffix = '' }) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+
+  const displayValue = format === 'percent'
+    ? `${(Number(value) * 100).toFixed(1)}%`
+    : format === 'currency'
+      ? fmt(value)
+      : (suffix ? `${value}${suffix}` : value);
+
+  const handleClick = () => {
+    if (!onChange) return;
+    const raw = format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
+    setEditValue(raw);
+    setEditing(true);
+  };
+
+  const handleSave = () => {
+    setEditing(false);
+    let parsed = parseFloat(editValue);
+    if (isNaN(parsed)) return; // discard invalid input
+    if (format === 'percent') parsed = parsed / 100;
+    if (parsed !== Number(value)) {
+      onChange(parsed);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+    if (e.key === 'Escape') { setEditing(false); }
+  };
+
+  if (editing) {
+    return (
+      <td className={`px-1 py-1 text-${align}`} style={{ background: `${T.input}60` }}>
+        <input
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          autoFocus
+          className="w-full px-2 py-1 text-[12px] font-num text-right rounded border outline-none"
+          style={{ borderColor: T.navy, background: '#fff', color: '#0000FF' }}
+        />
+      </td>
+    );
+  }
+
+  return (
+    <td
+      className={`px-3 py-2 font-num text-${align} group relative`}
+      style={{ background: `${T.input}40`, color: '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
+      onClick={handleClick}
+    >
+      {displayValue}
+      {onChange && (
+        <Pencil className="w-3 h-3 absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity" style={{ color: T.navy }} />
+      )}
+    </td>
+  );
+}
 function FormulaCell({ children, align = 'right' }) {
   return <td className={`px-3 py-2 font-num text-${align}`} style={{ background: `${T.formula}40`, color: T.t0 }}>{children}</td>;
 }
@@ -260,7 +330,7 @@ function InstructionsView({ data }) {
   );
 }
 
-function HRView({ employees }) {
+function HRView({ employees, onUpdate }) {
   if (!employees?.length) return <EmptySheet label="HR Costs" />;
   const headers = [
     { label: '#' }, { label: 'Role' }, { label: 'Department' }, { label: 'Category' },
@@ -274,7 +344,7 @@ function HRView({ employees }) {
         <tr style={{ background: T.total }}>
           <td colSpan={4} className="px-3 py-2.5 text-[12px] font-bold" style={{ color: T.t0 }}>TOTAL</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{totalCount}</td>
-          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{'\u2014'}</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalCost)}</td>
         </tr>
       }>
@@ -284,8 +354,8 @@ function HRView({ employees }) {
             <PlainCell bold>{emp.name}</PlainCell>
             <PlainCell>{emp.department}</PlainCell>
             <PlainCell>{(emp.category || '').replace('_', ' ')}</PlainCell>
-            <InputCell>{emp.count || 1}</InputCell>
-            <InputCell>{fmt(emp.monthlySalary)}</InputCell>
+            <EditableInputCell value={emp.count || 1} onChange={onUpdate ? (v) => onUpdate(i, 'count', v) : null} />
+            <EditableInputCell value={emp.monthlySalary} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'monthlySalary', v) : null} />
             <FormulaCell>{fmt((emp.count || 1) * emp.monthlySalary)}</FormulaCell>
           </tr>
         ))}
@@ -320,7 +390,7 @@ function RateCardView({ employees }) {
   );
 }
 
-function MarketingView({ channels }) {
+function MarketingView({ channels, onUpdate }) {
   if (!channels?.length) return <EmptySheet label="Marketing Costs" />;
   const headers = [
     { label: 'Channel' }, { label: 'Monthly Budget', align: 'right' }, { label: 'Leads', align: 'right' },
@@ -336,9 +406,9 @@ function MarketingView({ channels }) {
           <td className="px-3 py-2.5 font-bold text-[12px]" style={{ color: T.t0 }}>TOTAL</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalBudget)}</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{totalLeads}</td>
-          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{'\u2014'}</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{Math.round(totalCust)}</td>
-          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{'\u2014'}</td>
         </tr>
       }>
         {channels.map((ch, i) => {
@@ -347,9 +417,9 @@ function MarketingView({ channels }) {
           return (
             <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
               <PlainCell bold>{ch.channel}</PlainCell>
-              <InputCell>{fmt(ch.monthlyBudget)}</InputCell>
-              <InputCell>{ch.expectedLeads}</InputCell>
-              <InputCell>{(ch.conversionRate * 100).toFixed(1)}%</InputCell>
+              <EditableInputCell value={ch.monthlyBudget} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'monthlyBudget', v) : null} />
+              <EditableInputCell value={ch.expectedLeads} onChange={onUpdate ? (v) => onUpdate(i, 'expectedLeads', v) : null} />
+              <EditableInputCell value={ch.conversionRate} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'conversionRate', v) : null} />
               <FormulaCell>{Math.round(cust)}</FormulaCell>
               <FormulaCell>{fmt(cac)}</FormulaCell>
             </tr>
@@ -360,7 +430,7 @@ function MarketingView({ channels }) {
   );
 }
 
-function ManufacturingView({ products }) {
+function ManufacturingView({ products, onUpdate }) {
   if (!products?.length) return <EmptySheet label="Manufacturing Costs" />;
   const headers = [
     { label: 'Product' }, { label: 'Group' }, { label: 'Total Cost', align: 'right' },
@@ -377,9 +447,9 @@ function ManufacturingView({ products }) {
               <PlainCell bold>{p.name}</PlainCell>
               <PlainCell>{p.group}</PlainCell>
               <FormulaCell>{fmt(tc)}</FormulaCell>
-              <InputCell>{((p.targetMargin || 0.35) * 100).toFixed(0)}%</InputCell>
+              <EditableInputCell value={p.targetMargin || 0.35} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'targetMargin', v) : null} />
               <FormulaCell>{fmt(sp)}</FormulaCell>
-              <InputCell>{p.monthlyVolume || 0}</InputCell>
+              <EditableInputCell value={p.monthlyVolume || 0} onChange={onUpdate ? (v) => onUpdate(i, 'monthlyVolume', v) : null} />
             </tr>
           );
         })}
@@ -388,7 +458,7 @@ function ManufacturingView({ products }) {
   );
 }
 
-function GeoPurchaseView({ cities }) {
+function GeoPurchaseView({ cities, onUpdate }) {
   if (!cities?.length) return <EmptySheet label="Geo Purchase Costs" />;
   const pNames = cities[0]?.products?.map(p => p.productName) || [];
   const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
@@ -398,7 +468,9 @@ function GeoPurchaseView({ cities }) {
         {cities.map((city, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
             <PlainCell bold>{city.cityName}</PlainCell>
-            {(city.products || []).map((p, j) => <InputCell key={j}>{fmt(p.purchaseCost)}</InputCell>)}
+            {(city.products || []).map((p, j) => (
+              <EditableInputCell key={j} value={p.purchaseCost} format="currency" onChange={onUpdate ? (v) => onUpdate(i, j, 'purchaseCost', v) : null} />
+            ))}
           </tr>
         ))}
       </DataTable>
@@ -406,7 +478,7 @@ function GeoPurchaseView({ cities }) {
   );
 }
 
-function GeoSalePriceView({ cities }) {
+function GeoSalePriceView({ cities, onUpdate }) {
   if (!cities?.length) return <EmptySheet label="Geo Sale Prices" />;
   const pNames = cities[0]?.products?.map(p => p.productName) || [];
   const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
@@ -416,7 +488,9 @@ function GeoSalePriceView({ cities }) {
         {cities.map((city, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
             <PlainCell bold>{city.cityName}</PlainCell>
-            {(city.products || []).map((p, j) => <InputCell key={j}>{fmt(p.salePrice)}</InputCell>)}
+            {(city.products || []).map((p, j) => (
+              <EditableInputCell key={j} value={p.salePrice} format="currency" onChange={onUpdate ? (v) => onUpdate(i, j, 'salePrice', v) : null} />
+            ))}
           </tr>
         ))}
       </DataTable>
@@ -452,33 +526,39 @@ function GeoSelectorView({ cities, selectedCity, products }) {
   );
 }
 
-function AdminView({ expenses }) {
+function AdminView({ expenses, onUpdate }) {
   if (!expenses?.length) return <EmptySheet label="Admin Expenses" />;
   const categories = [...new Set(expenses.map(e => e.category))];
   const total = expenses.reduce((s, e) => s + e.monthlyAmount, 0);
   return (
     <SectionCard title="Admin & Other Expenses" subtitle={`${expenses.length} items across ${categories.length} categories`} accentColor={T.red}>
       <div className="space-y-3">
-        {categories.map(cat => (
-          <div key={cat}>
-            <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] rounded-t" style={{ background: T.total, color: T.navy }}>
-              {cat}
+        {categories.map(cat => {
+          const catExpenses = expenses.filter(e => e.category === cat);
+          return (
+            <div key={cat}>
+              <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] rounded-t" style={{ background: T.total, color: T.navy }}>
+                {cat}
+              </div>
+              <div className="rounded-b" style={{ border: `1px solid ${T.bg3}`, borderTop: 'none' }}>
+                <table className="w-full text-[12px]">
+                  <tbody>
+                    {catExpenses.map((exp, i) => {
+                      const globalIdx = expenses.indexOf(exp);
+                      return (
+                        <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+                          <PlainCell>{exp.item}</PlainCell>
+                          <EditableInputCell value={exp.monthlyAmount} format="currency" onChange={onUpdate ? (v) => onUpdate(globalIdx, 'monthlyAmount', v) : null} />
+                          <FormulaCell>{fmt(exp.monthlyAmount * 12)}</FormulaCell>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="rounded-b" style={{ border: `1px solid ${T.bg3}`, borderTop: 'none' }}>
-              <table className="w-full text-[12px]">
-                <tbody>
-                  {expenses.filter(e => e.category === cat).map((exp, i) => (
-                    <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-                      <PlainCell>{exp.item}</PlainCell>
-                      <InputCell>{fmt(exp.monthlyAmount)}</InputCell>
-                      <FormulaCell>{fmt(exp.monthlyAmount * 12)}</FormulaCell>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         <div className="flex justify-between items-center px-4 py-2.5 rounded-lg font-bold text-[12px]" style={{ background: T.total, color: T.t0 }}>
           <span>TOTAL ADMIN EXPENSES</span>
           <span className="font-num">{fmt(total)}/mo</span>
@@ -488,7 +568,7 @@ function AdminView({ expenses }) {
   );
 }
 
-function CapexView({ items }) {
+function CapexView({ items, onUpdate }) {
   if (!items?.length) return <EmptySheet label="CAPEX" />;
   const headers = [
     { label: 'Category' }, { label: 'Asset' }, { label: 'Cost', align: 'right' },
@@ -502,7 +582,7 @@ function CapexView({ items }) {
         <tr style={{ background: T.total }}>
           <td colSpan={2} className="px-3 py-2.5 font-bold text-[12px]" style={{ color: T.t0 }}>TOTAL</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalCost)}</td>
-          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>\u2014</td>
+          <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{'\u2014'}</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalAnnDep)}</td>
           <td className="px-3 py-2.5 text-right font-bold font-num" style={{ color: T.t0 }}>{fmt(totalAnnDep / 12)}</td>
         </tr>
@@ -511,8 +591,8 @@ function CapexView({ items }) {
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
             <PlainCell>{it.category}</PlainCell>
             <PlainCell bold>{it.item}</PlainCell>
-            <InputCell>{fmt(it.cost)}</InputCell>
-            <InputCell>{it.usefulLife}</InputCell>
+            <EditableInputCell value={it.cost} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'cost', v) : null} />
+            <EditableInputCell value={it.usefulLife} onChange={onUpdate ? (v) => onUpdate(i, 'usefulLife', v) : null} />
             <FormulaCell>{fmt(it.cost / it.usefulLife)}</FormulaCell>
             <FormulaCell>{fmt(it.cost / it.usefulLife / 12)}</FormulaCell>
           </tr>
@@ -522,7 +602,7 @@ function CapexView({ items }) {
   );
 }
 
-function FinanceView({ loans }) {
+function FinanceView({ loans, onUpdate }) {
   if (!loans?.length) return <EmptySheet label="Finance Costs" />;
   const headers = [
     { label: 'Loan' }, { label: 'Principal', align: 'right' }, { label: 'Rate', align: 'right' },
@@ -538,9 +618,9 @@ function FinanceView({ loans }) {
           return (
             <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
               <PlainCell bold>{loan.name}</PlainCell>
-              <InputCell>{fmt(loan.principal)}</InputCell>
-              <InputCell>{(loan.interestRate * 100).toFixed(1)}%</InputCell>
-              <InputCell>{n}</InputCell>
+              <EditableInputCell value={loan.principal} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'principal', v) : null} />
+              <EditableInputCell value={loan.interestRate} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'interestRate', v) : null} />
+              <EditableInputCell value={n} onChange={onUpdate ? (v) => onUpdate(i, 'tenureMonths', v) : null} />
               <FormulaCell>{fmt(emi)}</FormulaCell>
             </tr>
           );
@@ -582,7 +662,7 @@ function ProductMixView({ products }) {
   );
 }
 
-function LTVView({ params }) {
+function LTVView({ params, onUpdate }) {
   const aov = params?.avgOrderValue || 0;
   const freq = params?.purchaseFrequency || 12;
   const ret = params?.retentionRate || 0.7;
@@ -596,14 +676,36 @@ function LTVView({ params }) {
     const revenue = aov * (freq / 12) * retention * margin;
     dcfLTV += revenue / Math.pow(1 + discount / 12, m);
   }
+
+  const ltvInputs = [
+    { label: 'Avg Order Value', field: 'avgOrderValue', value: aov, format: 'currency' },
+    { label: 'Purchase Freq/Year', field: 'purchaseFrequency', value: freq, format: 'number' },
+    { label: 'Retention Rate', field: 'retentionRate', value: ret, format: 'percent' },
+    { label: 'Gross Margin', field: 'grossMargin', value: margin, format: 'percent' },
+    { label: 'Discount Rate', field: 'discountRate', value: discount, format: 'percent' },
+  ];
+
   return (
     <SectionCard title="Customer LTV Analysis" subtitle="Simple LTV + 24-month DCF cohort" accentColor={T.green}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <StatCard label="Avg Order Value" value={fmt(aov)} accent={T.teal} />
-          <StatCard label="Purchase Freq/Year" value={freq.toString()} accent={T.teal} />
-          <StatCard label="Retention Rate" value={`${(ret * 100).toFixed(0)}%`} accent={T.teal} />
-          <StatCard label="Gross Margin" value={`${(margin * 100).toFixed(0)}%`} accent={T.teal} />
+        {/* Editable input parameters */}
+        <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.bg3}` }}>
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr style={{ background: `linear-gradient(135deg, ${T.header}, ${T.header}E0)` }}>
+                <th className="px-3 py-2.5 text-white font-semibold text-[11px] uppercase tracking-[0.04em] text-left">Parameter</th>
+                <th className="px-3 py-2.5 text-white font-semibold text-[11px] uppercase tracking-[0.04em] text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ltvInputs.map((inp, i) => (
+                <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
+                  <PlainCell bold>{inp.label}</PlainCell>
+                  <EditableInputCell value={inp.value} format={inp.format} onChange={onUpdate ? (v) => onUpdate(inp.field, v) : null} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.green}08, ${T.bg1} 40%)`, border: `1px solid ${T.green}25`, boxShadow: T.card }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { mapDraftToTemplate } from '@/lib/excel/cellMapper';
 
 const UnitEconomicsContext = createContext();
 
@@ -143,6 +144,132 @@ export function UnitEconomicsProvider({ children }) {
     }));
     setTemplateOverrideVersion(v => v + 1);
   }, []);
+
+  // ── Rebuild templateOverrides from current context arrays ──
+  // Called after any UI edit to keep Excel download in sync.
+  const rebuildTemplateOverrides = useCallback((overrides = {}) => {
+    // Reconstruct a draft-like object from current state
+    const draft = {
+      companyName: overrides.companyName || businessInfo.companyName || '',
+      industry: overrides.industry || businessInfo.industry || '',
+      businessStage: overrides.businessStage || businessInfo.businessStage || 'early',
+      investmentAmount: Number(businessInfo.investmentAmount) || 0,
+      employees: overrides.employees || employees,
+      marketingChannels: overrides.marketingChannels || marketingChannels,
+      products: overrides.products || products,
+      cities: overrides.cities || cities,
+      adminExpenses: overrides.adminExpenses || adminExpenses,
+      capexItems: overrides.capexItems || capexItems,
+      loans: overrides.loans || loans,
+      ltvParams: overrides.ltvParams || ltvParams,
+      assumptions: {
+        workingDaysPerMonth: 26,
+        hoursPerDay: 8,
+        employeeEfficiency: 0.8,
+        taxRate: 0.25,
+        inflationRate: 0.06,
+        monthlyRevenueGrowth: 0.05,
+        capacityUtilization: 0.7,
+      },
+    };
+    try {
+      const patches = mapDraftToTemplate(draft, {
+        companyName: draft.companyName,
+        city: businessInfo.city,
+      });
+      applyTemplateOverrides(patches);
+    } catch (e) {
+      console.error('rebuildTemplateOverrides error:', e);
+    }
+  }, [businessInfo, employees, marketingChannels, products, cities, adminExpenses, capexItems, loans, ltvParams, applyTemplateOverrides]);
+
+  // ── Update helpers for individual fields ──
+  // Each updates the context array and then rebuilds template overrides.
+
+  const updateEmployee = useCallback((index, field, value) => {
+    setEmployees(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      // Rebuild after state update via setTimeout to ensure state is committed
+      setTimeout(() => rebuildTemplateOverrides({ employees: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateProduct = useCallback((index, field, value) => {
+    setProducts(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ products: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateProductCostElement = useCallback((productIndex, costIndex, field, value) => {
+    setProducts(prev => {
+      const next = [...prev];
+      const costElements = [...(next[productIndex].costElements || [])];
+      costElements[costIndex] = { ...costElements[costIndex], [field]: value };
+      next[productIndex] = { ...next[productIndex], costElements };
+      setTimeout(() => rebuildTemplateOverrides({ products: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateMarketingChannel = useCallback((index, field, value) => {
+    setMarketingChannels(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ marketingChannels: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateAdminExpense = useCallback((index, field, value) => {
+    setAdminExpenses(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ adminExpenses: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateCapexItem = useCallback((index, field, value) => {
+    setCapexItems(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ capexItems: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateLoan = useCallback((index, field, value) => {
+    setLoans(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ loans: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateLtvParam = useCallback((field, value) => {
+    setLtvParams(prev => {
+      const next = { ...prev, [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ ltvParams: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  const updateCityProduct = useCallback((cityIndex, productIndex, field, value) => {
+    setCities(prev => {
+      const next = [...prev];
+      const cityProducts = [...(next[cityIndex].products || [])];
+      cityProducts[productIndex] = { ...cityProducts[productIndex], [field]: value };
+      next[cityIndex] = { ...next[cityIndex], products: cityProducts };
+      setTimeout(() => rebuildTemplateOverrides({ cities: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
 
   // ── Loading state for conversation switching ──
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
@@ -370,6 +497,12 @@ export function UnitEconomicsProvider({ children }) {
       // Template overrides (for new template-based viewer)
       templateOverrides, templateOverrideVersion,
       applyTemplateOverrides, setTemplateCell,
+
+      // Update helpers for inline editing
+      updateEmployee, updateProduct, updateProductCostElement,
+      updateMarketingChannel, updateAdminExpense, updateCapexItem,
+      updateLoan, updateLtvParam, updateCityProduct,
+      rebuildTemplateOverrides,
 
       // Conversation management
       loadConversation, resetConversation, isLoadingConversation,
