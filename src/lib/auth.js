@@ -17,6 +17,13 @@ export async function requireAuth() {
 
   const clerkUser = await currentUser();
 
+  if (!clerkUser) {
+    throw new Response(JSON.stringify({ error: 'Unable to fetch user profile' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const dbUser = await upsertUser({
     clerkId: userId,
     email: clerkUser?.emailAddresses?.[0]?.emailAddress || '',

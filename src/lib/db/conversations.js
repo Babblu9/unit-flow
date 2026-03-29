@@ -1,6 +1,6 @@
 import { db } from './index.js';
 import { conversations } from './schema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 
 export async function createConversation(userId, data = {}) {
   const [convo] = await db.insert(conversations)
@@ -28,7 +28,7 @@ export async function getConversations(userId) {
     completion: conversations.completion,
     screenPhase: conversations.screenPhase,
     modelGenerated: conversations.modelGenerated,
-    messageCount: conversations.messages,
+    messageCount: sql`jsonb_array_length(${conversations.messages})`,
     createdAt: conversations.createdAt,
     updatedAt: conversations.updatedAt,
   })

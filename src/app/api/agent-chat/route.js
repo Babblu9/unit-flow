@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth.js';
 import { createConversation, getConversation, updateConversation } from '@/lib/db/conversations.js';
 import { buildSystemPrompt, DRAFT_GENERATION_PROMPT } from '@/lib/ai/prompts.js';
 import { UnitEconomicsDraftSchema } from '@/lib/ai/schemas.js';
+import { searchBusinessContext, formatEnrichmentForPrompt } from '@/lib/exa/search.js';
 
 /* ── AI client (Vercel AI Gateway) ── */
 const openai = createOpenAI({
@@ -246,7 +247,22 @@ export async function POST(request) {
     // ── Auto-draft step: generate full model via structured output ──
     if (currentStep === 'auto_draft') {
       try {
-        const draftPrompt = `${DRAFT_GENERATION_PROMPT}\n\n## Business Context:\n${JSON.stringify(kg, null, 2)}`;
+        // Enrich KG with real industry data from Exa search
+        let enrichmentText = '';
+        try {
+          const enrichment = await searchBusinessContext(kg);
+          if (enrichment && Object.keys(enrichment).length > 0) {
+            kg.webResearch = enrichment;
+            enrichmentText = formatEnrichmentForPrompt(enrichment);
+          }
+        } catch (exaErr) {
+          console.warn('Exa enrichment skipped:', exaErr.message);
+        }
+
+        let draftPrompt = `${DRAFT_GENERATION_PROMPT}\n\n## Business Context:\n${JSON.stringify(kg, null, 2)}`;
+        if (enrichmentText) {
+          draftPrompt += `\n\n## Real Industry Data (from web research \u2014 use these to calibrate your numbers):\n${enrichmentText}`;
+        }
 
         const { object } = await generateObject({
           model: openai(MODEL),

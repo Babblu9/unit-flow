@@ -32,11 +32,20 @@ function getWorkingPath(conversationId) {
  */
 export async function POST(request) {
   try {
-    await requireAuth();
+    const { dbUser } = await requireAuth();
     const { patches, conversationId } = await request.json();
 
     if (!patches || !Array.isArray(patches) || patches.length === 0) {
       return NextResponse.json({ error: 'patches array is required' }, { status: 400 });
+    }
+
+    // Verify conversation ownership if conversationId is provided
+    if (conversationId) {
+      const { getConversation } = await import('@/lib/db/conversations.js');
+      const convo = await getConversation(conversationId, dbUser.id);
+      if (!convo) {
+        return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 });
+      }
     }
 
     const result = await withExcelLock(async () => {

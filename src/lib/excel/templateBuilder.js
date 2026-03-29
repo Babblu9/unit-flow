@@ -71,6 +71,89 @@ function applyNormal(cell) {
 }
 
 /**
+ * Compute row metadata for all sheets so cross-sheet formula references
+ * point to the correct rows. Centralizes the row-offset logic to avoid
+ * off-by-one bugs across multiple sheet builders.
+ */
+function computeRowMeta(draft) {
+  const employees = draft.employees || [];
+  const channels = draft.marketingChannels || [];
+  const adminExps = draft.adminExpenses || [];
+  const capexItems = draft.capexItems || [];
+  const loans = draft.loans || [];
+  const products = draft.products || [];
+
+  // ── HR Sheet (Sheet 1) ──
+  // Header row = 4. Data starts at row 5.
+  // For each non-empty category: 1 section-header row + N employee rows.
+  // After data: 1 blank row, then the total row.
+  const hrCategories = ['management', 'white_collar', 'blue_collar'];
+  let hrDataRows = 0;
+  const employeeRowMap = []; // maps flat employee index → actual Excel row in HR sheet
+  let hrCursor = 5; // first data row after header at row 4
+  for (const cat of hrCategories) {
+    const catEmps = employees.filter(e => e.category === cat);
+    if (catEmps.length === 0) continue;
+    hrCursor++; // category section header row
+    hrDataRows += 1;
+    for (const emp of catEmps) {
+      employeeRowMap.push(hrCursor);
+      hrCursor++;
+      hrDataRows++;
+    }
+  }
+  // After data loop: hrCursor = first unused row.
+  // buildHRSheet does: row++ (blank), then totRow = row.
+  const hrTotRow = hrCursor + 1; // skip blank row
+
+  // ── Marketing Sheet (Sheet 2) ──
+  // Header row = 5. Channels at 6+. Totals after channels + blank.
+  const mktTotRow = 5 + channels.length + 1;
+
+  // ── Admin Sheet (Sheet 3D) ──
+  // Data starts at row 4. For each non-empty category: 1 header + N items.
+  // After data: 1 blank row (row++), then total row.
+  const adminCats = ['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin'];
+  let adminDataRows = 0;
+  for (const cat of adminCats) {
+    const catExps = adminExps.filter(e => e.category === cat);
+    if (catExps.length > 0) adminDataRows += 1 + catExps.length;
+  }
+  const adminTotRow = 4 + adminDataRows + 1; // +1 for blank row before totals
+
+  // ── CAPEX Sheet (Sheet 3E) ──
+  // Items at rows 4+. Totals after items + blank.
+  const capexTotRow = 4 + capexItems.length + 1;
+
+  // ── Finance Sheet (Sheet 3F) ──
+  // Header row = 5. Loans at 6+. Totals after loans + blank.
+  const financeTotRow = 5 + loans.length + 1;
+
+  // ── Product Mix (Sheet 4) ──
+  // Products at rows 4+. TOTAL row after products + blank.
+  const pmTotRow = 4 + products.length + 1;
+
+  // ── Cash Flow row constants (Sheet 7) ──
+  const cfRows = {
+    REVENUE_SEC: 4, PRODUCT_SALES: 5, OTHER_INCOME: 6, TOTAL_REV: 7,
+    SPACER1: 8, EXPENSE_SEC: 9, COGS: 10, HR: 11, MARKETING: 12,
+    ADMIN: 13, DEPRECIATION: 14, LOAN_EMI: 15, TOTAL_EXP: 16,
+    SPACER2: 17, NET_CF: 18, CUM_CF: 19,
+  };
+
+  return {
+    hrTotRow,
+    mktTotRow,
+    adminTotRow,
+    capexTotRow,
+    financeTotRow,
+    pmTotRow,
+    employeeRowMap,
+    cfRows,
+  };
+}
+
+/**
  * Generate a complete 17-sheet Unit Economics workbook from a draft object.
  * @param {Object} draft - The UnitEconomicsDraftSchema object
  * @returns {ExcelJS.Workbook}
@@ -81,6 +164,9 @@ export async function generateWorkbook(draft) {
   wb.creator = 'OnEasy Unit Economics Engine';
   wb.created = new Date();
 
+  // Compute shared row metadata for cross-sheet references
+  const meta = computeRowMeta(draft);
+
   // ── Sheet 0: Instructions & Guide ──
   buildInstructionsSheet(wb, draft);
 
@@ -88,7 +174,7 @@ export async function generateWorkbook(draft) {
   buildHRSheet(wb, draft);
 
   // ── Sheet 1.1: Rate Card ──
-  buildRateCardSheet(wb, draft);
+  buildRateCardSheet(wb, draft, meta);
 
   // ── Sheet 2: Marketing Costs ──
   buildMarketingSheet(wb, draft);
@@ -115,22 +201,22 @@ export async function generateWorkbook(draft) {
   buildFinanceSheet(wb, draft);
 
   // ── Sheet 4: Product Market Mix ──
-  buildProductMixSheet(wb, draft);
+  buildProductMixSheet(wb, draft, meta);
 
   // ── Sheet 5: Customer LTV Analysis ──
   buildLTVSheet(wb, draft);
 
   // ── Sheet 6: Target Profit Calculator ──
-  buildTargetProfitSheet(wb, draft);
+  buildTargetProfitSheet(wb, draft, meta);
 
   // ── Sheet 7: Cash Flow ──
-  buildCashFlowSheet(wb, draft);
+  buildCashFlowSheet(wb, draft, meta);
 
   // ── Sheet 8: KPI Dashboard ──
-  buildKPIDashboardSheet(wb, draft);
+  buildKPIDashboardSheet(wb, draft, meta);
 
   // ── Sheet 9: Scenario Analysis ──
-  buildScenarioSheet(wb, draft);
+  buildScenarioSheet(wb, draft, meta);
 
   return wb;
 }
@@ -333,7 +419,7 @@ function buildHRSheet(wb, draft) {
   applyFormula(ws.getCell(`I${totRow}`));
 }
 
-function buildRateCardSheet(wb, draft) {
+function buildRateCardSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('1.1 Rate Card', { properties: { tabColor: { argb: 'FF2E75B6' } } });
   ws.columns = [
     { width: 5 }, { width: 25 }, { width: 15 }, { width: 15 },
@@ -362,9 +448,10 @@ function buildRateCardSheet(wb, draft) {
     ws.getCell(`B${r}`).value = emp.name;
     applyNormal(ws.getCell(`B${r}`));
 
-    // Cross-ref to HR sheet salary
+    // Cross-ref to HR sheet salary (use actual row from metadata)
     const salCell = ws.getCell(`C${r}`);
-    salCell.value = { formula: `'1. HR Costs'!F${5 + idx}` };
+    const hrRow = meta.employeeRowMap[idx] || (5 + idx);
+    salCell.value = { formula: `'1. HR Costs'!F${hrRow}` };
     salCell.numFmt = STYLES.currencyFormat;
     applyCrossRef(salCell);
 
@@ -1007,7 +1094,7 @@ function buildFinanceSheet(wb, draft) {
   applyFormula(ws.getCell(`G${totRow}`));
 }
 
-function buildProductMixSheet(wb, draft) {
+function buildProductMixSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('4. Product Market Mix', { properties: { tabColor: { argb: 'FF00B050' } } });
   ws.columns = [
     { width: 5 }, { width: 25 }, { width: 10 }, { width: 15 },
@@ -1077,9 +1164,9 @@ function buildProductMixSheet(wb, draft) {
     mcCell.numFmt = STYLES.currencyFormat;
     applyFormula(mcCell);
 
-    // Break-Even = Fixed Costs / Contribution per Unit (placeholder)
+    // Break-Even = Fixed Costs / Contribution per Unit
     const beCell = ws.getCell(`J${r}`);
-    beCell.value = { formula: `IFERROR(ROUND(('3D. Admin & Other Expenses'!D${4 + (draft.adminExpenses?.length || 0) + 1}+'1. HR Costs'!H${5 + (draft.employees?.length || 0) + 3})/G${r},0),0)` };
+    beCell.value = { formula: `IFERROR(ROUND(('3D. Admin & Other Expenses'!D${meta.adminTotRow}+'1. HR Costs'!H${meta.hrTotRow})/G${r},0),0)` };
     applyFormula(beCell);
   });
 
@@ -1369,7 +1456,7 @@ function buildLTVSheet(wb, draft) {
   applyFormula(ppCell);
 }
 
-function buildTargetProfitSheet(wb, draft) {
+function buildTargetProfitSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('6. Target Profit Calculator', { properties: { tabColor: { argb: 'FFED7D31' } } });
   ws.columns = [{ width: 5 }, { width: 30 }, { width: 20 }, { width: 20 }];
 
@@ -1389,9 +1476,7 @@ function buildTargetProfitSheet(wb, draft) {
   // Fixed costs summary
   ws.getCell('B6').value = 'Total Fixed Costs (Monthly):';
   const fcCell = ws.getCell('C6');
-  const adminTotRow = 4 + (draft.adminExpenses?.length || 0) + (new Set((draft.adminExpenses || []).map(e => e.category)).size) + 1;
-  const hrTotRow = 5 + (draft.employees?.length || 0) + 3 + 1;
-  fcCell.value = { formula: `'3D. Admin & Other Expenses'!D${adminTotRow}+'1. HR Costs'!H${hrTotRow}` };
+  fcCell.value = { formula: `'3D. Admin & Other Expenses'!D${meta.adminTotRow}+'1. HR Costs'!H${meta.hrTotRow}` };
   fcCell.numFmt = STYLES.currencyFormat;
   applyCrossRef(fcCell);
 
@@ -1432,18 +1517,15 @@ function buildTargetProfitSheet(wb, draft) {
     reqRevCell.numFmt = STYLES.currencyFormat;
     applyFormula(reqRevCell);
 
-    const totalCost = (prod.costElements || []).reduce((sum, e) => sum + (e.cost || 0), 0);
-    const margin = prod.targetMargin || 0.35;
-    const salePrice = totalCost > 0 ? totalCost / (1 - margin) : 1;
-    const contribution = salePrice - totalCost;
-
+    // Required Units = Required Revenue / Contribution per unit (from Sheet 4)
+    const pmRow = 4 + idx; // Product row in Product Market Mix
     const reqUnitsCell = ws.getCell(`E${r}`);
-    reqUnitsCell.value = { formula: `IFERROR(ROUND(D${r}/${contribution > 0 ? contribution : 1},0),0)` };
+    reqUnitsCell.value = { formula: `IFERROR(ROUND(D${r}/'4. Product Market Mix'!G${pmRow},0),0)` };
     applyFormula(reqUnitsCell);
   });
 }
 
-function buildCashFlowSheet(wb, draft) {
+function buildCashFlowSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('7. Cash Flow', { properties: { tabColor: { argb: 'FF00B0F0' } } });
 
   // 12-month projection
@@ -1486,41 +1568,10 @@ function buildCashFlowSheet(wb, draft) {
 
   // ── Compute reference row addresses for cross-sheet lookups ──
   const products = draft.products || [];
-  const employees = draft.employees || [];
-  const channels = draft.marketingChannels || [];
-  const adminExps = draft.adminExpenses || [];
-  const capexItems = draft.capexItems || [];
   const loans = draft.loans || [];
 
-  // Product Mix total row (Sheet 4)
-  const pmTotRow = 4 + products.length + 1;
-
-  // HR total row (Sheet 1): header=4, then category sections + employees, then blank + total
-  const categories = ['management', 'white_collar', 'blue_collar'];
-  let hrDataRows = 0;
-  for (const cat of categories) {
-    const catEmps = employees.filter(e => e.category === cat);
-    if (catEmps.length > 0) hrDataRows += 1 + catEmps.length; // section header + employees
-  }
-  const hrTotRow = 4 + hrDataRows + 2; // headerRow+1 based, +1 blank, +1 total
-
-  // Marketing total row (Sheet 2)
-  const mktTotRow = 5 + channels.length + 1;
-
-  // Admin total row (Sheet 3D)
-  const adminCats = ['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin'];
-  let adminDataRows = 0;
-  for (const cat of adminCats) {
-    const catExps = adminExps.filter(e => e.category === cat);
-    if (catExps.length > 0) adminDataRows += 1 + catExps.length;
-  }
-  const adminTotRow = 4 + adminDataRows; // includes blank row logic from buildAdminSheet
-
-  // CAPEX total row (Sheet 3E)
-  const capexTotRow = 4 + capexItems.length + 1;
-
-  // Finance total row (Sheet 3F)
-  const financeTotRow = 5 + loans.length + 1;
+  // Use centralized row metadata
+  const { hrTotRow, mktTotRow, adminTotRow, capexTotRow, financeTotRow, pmTotRow } = meta;
 
   // Geo Selector total row for COGS — sum of purchase costs * volumes from 3C
   const geoLastProdRow = 6 + products.length - 1;
@@ -1720,7 +1771,7 @@ function buildCashFlowSheet(wb, draft) {
   });
 }
 
-function buildKPIDashboardSheet(wb, draft) {
+function buildKPIDashboardSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('8. KPI Dashboard', { properties: { tabColor: { argb: 'FF00B050' } } });
   ws.columns = [{ width: 5 }, { width: 35 }, { width: 22 }, { width: 35 }];
 
@@ -1729,41 +1780,9 @@ function buildKPIDashboardSheet(wb, draft) {
 
   // ── Compute reference rows ──
   const products = draft.products || [];
-  const employees = draft.employees || [];
-  const channels = draft.marketingChannels || [];
-  const adminExps = draft.adminExpenses || [];
-  const capexItems = draft.capexItems || [];
-  const loans = draft.loans || [];
 
-  // Product Mix total row (Sheet 4)
-  const pmTotRow = 4 + products.length + 1;
-
-  // HR total row
-  const categories = ['management', 'white_collar', 'blue_collar'];
-  let hrDataRows = 0;
-  for (const cat of categories) {
-    const catEmps = employees.filter(e => e.category === cat);
-    if (catEmps.length > 0) hrDataRows += 1 + catEmps.length;
-  }
-  const hrTotRow = 4 + hrDataRows + 2;
-
-  // Marketing total row
-  const mktTotRow = 5 + channels.length + 1;
-
-  // Admin total row
-  const adminCats = ['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin'];
-  let adminDataRows = 0;
-  for (const cat of adminCats) {
-    const catExps = adminExps.filter(e => e.category === cat);
-    if (catExps.length > 0) adminDataRows += 1 + catExps.length;
-  }
-  const adminTotRow = 4 + adminDataRows;
-
-  // CAPEX total row
-  const capexTotRow = 4 + capexItems.length + 1;
-
-  // Finance total row
-  const financeTotRow = 5 + loans.length + 1;
+  // Use centralized row metadata
+  const { hrTotRow, mktTotRow, adminTotRow, capexTotRow, financeTotRow, pmTotRow } = meta;
 
   // LTV result row (calculated in Sheet 5)
   const ltvCalcStart = 3 + 6 + 1; // params start=3, 5 param rows + 1 header, +1 gap
@@ -1941,39 +1960,16 @@ function buildKPIDashboardSheet(wb, draft) {
   ws.getCell(`D${row}`).value = 'Total contribution / total units'; applyNormal(ws.getCell(`D${row}`));
 }
 
-function buildScenarioSheet(wb, draft) {
+function buildScenarioSheet(wb, draft, meta) {
   const ws = wb.addWorksheet('9. Scenario Analysis', { properties: { tabColor: { argb: 'FFFFC000' } } });
   ws.columns = [{ width: 5 }, { width: 30 }, { width: 18 }, { width: 18 }, { width: 18 }];
 
   ws.getCell('B1').value = 'Scenario Analysis \u2014 Best / Base / Worst';
   ws.getCell('B1').font = { bold: true, size: 14, color: { argb: 'FF1F4E79' } };
 
-  // Compute reference rows
+  // Use centralized row metadata
   const products = draft.products || [];
-  const employees = draft.employees || [];
-  const channels = draft.marketingChannels || [];
-  const adminExps = draft.adminExpenses || [];
-  const capexItems = draft.capexItems || [];
-  const loans = draft.loans || [];
-
-  const pmTotRow = 4 + products.length + 1;
-  const categories = ['management', 'white_collar', 'blue_collar'];
-  let hrDataRows = 0;
-  for (const cat of categories) {
-    if (employees.filter(e => e.category === cat).length > 0)
-      hrDataRows += 1 + employees.filter(e => e.category === cat).length;
-  }
-  const hrTotRow = 4 + hrDataRows + 2;
-  const mktTotRow = 5 + channels.length + 1;
-  const adminCats = ['Rent', 'Utilities', 'Repairs & Maintenance', 'Insurance', 'Office & Admin'];
-  let adminDataRows = 0;
-  for (const cat of adminCats) {
-    if (adminExps.filter(e => e.category === cat).length > 0)
-      adminDataRows += 1 + adminExps.filter(e => e.category === cat).length;
-  }
-  const adminTotRow = 4 + adminDataRows;
-  const capexTotRow = 4 + capexItems.length + 1;
-  const financeTotRow = 5 + loans.length + 1;
+  const { hrTotRow, mktTotRow, adminTotRow, capexTotRow, financeTotRow, pmTotRow } = meta;
 
   const headers = ['', 'Metric', 'Best Case', 'Base Case', 'Worst Case'];
   headers.forEach((h, i) => {
