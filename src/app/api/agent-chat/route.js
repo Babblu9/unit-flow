@@ -8,11 +8,11 @@ import { UnitEconomicsDraftSchema } from '@/lib/ai/schemas.js';
 
 /* ── AI client (Vercel AI Gateway) ── */
 const openai = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.AI_GATEWAY_URL || 'https://ai-gateway.vercel.sh/v1',
+  apiKey: process.env.AI_GATEWAY_API_KEY,
+  baseURL: process.env.AI_GATEWAY_BASE_URL || 'https://ai-gateway.vercel.sh/v1',
 });
 
-const MODEL = process.env.AI_MODEL || 'openai/gpt-4o';
+const MODEL = process.env.AI_GATEWAY_MODEL || 'openai/gpt-4o';
 
 /* ── Step sequence ── */
 const STEP_ORDER = [
