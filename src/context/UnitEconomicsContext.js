@@ -92,8 +92,12 @@ export function UnitEconomicsProvider({ children }) {
   // ── Target Profit (Sheet 6) ──
   const [profitTargets, setProfitTargets] = useState({
     targetMonthlyProfit: 0,
+    rationale: '',
     revenueMixOverrides: {},  // { [productId]: percentage }
   });
+
+  // ── Cost Optimization Suggestions ──
+  const [costSuggestions, setCostSuggestions] = useState([]);
 
   // ── Scenario Analysis (Sheet 9) ──
   const [scenarios, setScenarios] = useState({
@@ -271,6 +275,28 @@ export function UnitEconomicsProvider({ children }) {
     });
   }, [rebuildTemplateOverrides]);
 
+  const updateProfitTarget = useCallback((field, value) => {
+    setProfitTargets(prev => {
+      const next = { ...prev, [field]: value };
+      setTimeout(() => rebuildTemplateOverrides(), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
+  /** Mark a cost suggestion as accepted (status: 'accepted') */
+  const acceptSuggestion = useCallback((suggestionId) => {
+    setCostSuggestions(prev =>
+      prev.map(s => s.id === suggestionId ? { ...s, status: 'accepted' } : s)
+    );
+  }, []);
+
+  /** Mark a cost suggestion as dismissed (status: 'dismissed') */
+  const dismissSuggestion = useCallback((suggestionId) => {
+    setCostSuggestions(prev =>
+      prev.map(s => s.id === suggestionId ? { ...s, status: 'dismissed' } : s)
+    );
+  }, []);
+
   // ── Loading state for conversation switching ──
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
@@ -353,6 +379,7 @@ export function UnitEconomicsProvider({ children }) {
         if (ms.productToggles)      setProductToggles(ms.productToggles);
         if (ms.ltvParams)           setLtvParams(ms.ltvParams);
         if (ms.profitTargets)       setProfitTargets(ms.profitTargets);
+        if (ms.costSuggestions)     setCostSuggestions(ms.costSuggestions);
         if (ms.scenarios)           setScenarios(ms.scenarios);
       }
 
@@ -404,8 +431,10 @@ export function UnitEconomicsProvider({ children }) {
     });
     setProfitTargets({
       targetMonthlyProfit: 0,
+      rationale: '',
       revenueMixOverrides: {},
     });
+    setCostSuggestions([]);
     setScenarios({
       best:  { revenueMultiplier: 1.2, costMultiplier: 0.9 },
       base:  { revenueMultiplier: 1.0, costMultiplier: 1.0 },
@@ -438,6 +467,7 @@ export function UnitEconomicsProvider({ children }) {
     '7. Cash Flow',
     '8. KPI Dashboard',
     '9. Scenario Analysis',
+    '10. Smart Suggestions',
   ];
 
   return (
@@ -476,6 +506,10 @@ export function UnitEconomicsProvider({ children }) {
       // Target Profit (Sheet 6)
       profitTargets, setProfitTargets,
 
+      // Cost Optimization Suggestions
+      costSuggestions, setCostSuggestions,
+      acceptSuggestion, dismissSuggestion,
+
       // Scenarios (Sheet 9)
       scenarios, setScenarios,
 
@@ -501,7 +535,7 @@ export function UnitEconomicsProvider({ children }) {
       // Update helpers for inline editing
       updateEmployee, updateProduct, updateProductCostElement,
       updateMarketingChannel, updateAdminExpense, updateCapexItem,
-      updateLoan, updateLtvParam, updateCityProduct,
+      updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget,
       rebuildTemplateOverrides,
 
       // Conversation management

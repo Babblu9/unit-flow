@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useUnitEconomics } from '@/context/UnitEconomicsContext';
-import { BarChart3, TrendingUp, Wallet, Users, Target, Layers, Pencil } from 'lucide-react';
+import { BarChart3, TrendingUp, Wallet, Users, Target, Layers, Pencil, ChevronDown, ChevronRight, Lightbulb, ArrowDownCircle } from 'lucide-react';
 
 /* ════════════════════════════════════════════════════════
    Theme constants — mirrors Fina AI's semantic color system
@@ -43,6 +43,7 @@ const OUTPUT_SHEETS = [
   '4. Product Market Mix', '5. Customer LTV Analysis',
   '6. Target Profit Calculator', '7. Cash Flow',
   '8. KPI Dashboard', '9. Scenario Analysis',
+  '10. Smart Suggestions',
 ];
 
 export default function SheetViewer() {
@@ -50,15 +51,15 @@ export default function SheetViewer() {
     activeSheet, setActiveSheet, flashingSheet, SHEET_NAMES,
     businessInfo, employees, marketingChannels, products,
     adminExpenses, capexItems, loans, ltvParams, scenarios,
-    cities, selectedCity, profitTargets, completion,
+    cities, selectedCity, profitTargets, costSuggestions, completion,
     // Update helpers for inline editing
     updateEmployee, updateProduct, updateProductCostElement,
     updateMarketingChannel, updateAdminExpense, updateCapexItem,
-    updateLoan, updateLtvParam, updateCityProduct,
+    updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget,
   } = useUnitEconomics();
 
-  const data = { businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities, selectedCity, profitTargets };
-  const updaters = { updateEmployee, updateProduct, updateProductCostElement, updateMarketingChannel, updateAdminExpense, updateCapexItem, updateLoan, updateLtvParam, updateCityProduct };
+  const data = { businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities, selectedCity, profitTargets, costSuggestions };
+  const updaters = { updateEmployee, updateProduct, updateProductCostElement, updateMarketingChannel, updateAdminExpense, updateCapexItem, updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget };
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--bg-page)]">
@@ -140,12 +141,13 @@ function SheetContent({ sheetName, data, updaters }) {
     '3D. Admin & Other Expenses': () => <AdminView expenses={data.adminExpenses} onUpdate={updaters.updateAdminExpense} />,
     '3E. Capital Expenses (CAPEX)': () => <CapexView items={data.capexItems} onUpdate={updaters.updateCapexItem} />,
     '3F. Finance Costs': () => <FinanceView loans={data.loans} onUpdate={updaters.updateLoan} />,
-    '4. Product Market Mix': () => <ProductMixView products={data.products} />,
+    '4. Product Market Mix': () => <ProductMixView products={data.products} employees={data.employees} adminExpenses={data.adminExpenses} capexItems={data.capexItems} onUpdateCostElement={updaters.updateProductCostElement} />,
     '5. Customer LTV Analysis': () => <LTVView params={data.ltvParams} onUpdate={updaters.updateLtvParam} />,
-    '6. Target Profit Calculator': () => <TargetProfitView products={data.products} profitTargets={data.profitTargets} employees={data.employees} adminExpenses={data.adminExpenses} />,
+    '6. Target Profit Calculator': () => <TargetProfitView products={data.products} profitTargets={data.profitTargets} employees={data.employees} adminExpenses={data.adminExpenses} onUpdateProfitTarget={updaters.updateProfitTarget} />,
     '7. Cash Flow': () => <CashFlowView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} adminExpenses={data.adminExpenses} loans={data.loans} />,
     '8. KPI Dashboard': () => <KPIDashboardView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} ltvParams={data.ltvParams} />,
     '9. Scenario Analysis': () => <ScenarioView scenarios={data.scenarios} />,
+    '10. Smart Suggestions': () => <CostSuggestionsView suggestions={data.costSuggestions} profitTargets={data.profitTargets} />,
   };
   const View = views[sheetName];
   return View ? <View /> : <EmptySheet label={sheetName} />;
@@ -262,6 +264,68 @@ function EditableInputCell({ value, onChange, format = 'number', align = 'right'
     <td
       className={`px-3 py-2 font-num text-${align} group relative`}
       style={{ background: `${T.input}40`, color: '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
+      onClick={handleClick}
+    >
+      {displayValue}
+      {onChange && (
+        <Pencil className="w-3 h-3 absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity" style={{ color: T.navy }} />
+      )}
+    </td>
+  );
+}
+/** Variant of EditableInputCell that supports colSpan prop for cost element rows */
+function EditableInlineCell({ value, onChange, format = 'number', colSpan = 1 }) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+
+  const displayValue = format === 'percent'
+    ? `${(Number(value) * 100).toFixed(1)}%`
+    : format === 'currency'
+      ? fmt(value)
+      : value;
+
+  const handleClick = () => {
+    if (!onChange) return;
+    const raw = format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
+    setEditValue(raw);
+    setEditing(true);
+  };
+
+  const handleSave = () => {
+    setEditing(false);
+    let parsed = parseFloat(editValue);
+    if (isNaN(parsed)) return;
+    if (format === 'percent') parsed = parsed / 100;
+    if (parsed !== Number(value)) onChange(parsed);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+    if (e.key === 'Escape') { setEditing(false); }
+  };
+
+  if (editing) {
+    return (
+      <td colSpan={colSpan} className="px-1 py-1 text-right" style={{ background: `${T.input}60` }}>
+        <input
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          autoFocus
+          className="w-full px-2 py-1 text-[12px] font-num text-right rounded border outline-none"
+          style={{ borderColor: T.navy, background: '#fff', color: '#0000FF' }}
+        />
+      </td>
+    );
+  }
+
+  return (
+    <td
+      colSpan={colSpan}
+      className="px-3 py-1.5 font-num text-right text-[11px] group relative"
+      style={{ background: `${T.input}30`, color: '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
       onClick={handleClick}
     >
       {displayValue}
@@ -630,34 +694,165 @@ function FinanceView({ loans, onUpdate }) {
   );
 }
 
-function ProductMixView({ products }) {
+function ProductMixView({ products, employees, adminExpenses, capexItems, onUpdateCostElement }) {
   if (!products?.length) return <EmptySheet label="Product Market Mix" />;
+  const [expandedProducts, setExpandedProducts] = useState({});
+
+  const toggleExpand = (i) => {
+    setExpandedProducts(prev => ({ ...prev, [i]: !prev[i] }));
+  };
+
+  // Calculate overhead allocation per product
+  const totalHR = (employees || []).reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
+  const totalAdmin = (adminExpenses || []).reduce((s, e) => s + e.monthlyAmount, 0);
+  const totalDepreciation = (capexItems || []).reduce((s, it) => s + (it.cost / (it.usefulLife || 1) / 12), 0);
+  const totalFixedCosts = totalHR + totalAdmin + totalDepreciation;
+  const totalMonthlyVolume = products.reduce((s, p) => s + (p.monthlyVolume || 0), 0);
+  const activeProducts = products.length;
+
+  // Category labels for display
+  const categoryLabels = {
+    raw_material: 'Raw Material',
+    direct_labor: 'Direct Labor',
+    packaging: 'Packaging',
+    logistics: 'Logistics',
+    processing: 'Processing',
+    overhead: 'Overhead',
+    other: 'Other',
+  };
+
   const headers = [
-    { label: 'Product' }, { label: 'Active' }, { label: 'Cost/Unit', align: 'right' },
-    { label: 'Sale Price', align: 'right' }, { label: 'Margin', align: 'right' },
-    { label: 'Contribution', align: 'right' }, { label: 'Break-Even', align: 'right' },
+    { label: '' }, { label: 'Product' }, { label: 'Active' },
+    { label: 'Direct Cost', align: 'right' }, { label: 'Overhead/Unit', align: 'right' },
+    { label: 'Full Cost', align: 'right' }, { label: 'Sale Price', align: 'right' },
+    { label: 'Margin', align: 'right' }, { label: 'Contribution', align: 'right' },
   ];
+
   return (
-    <SectionCard title="Product Market Mix" subtitle="YES/NO toggle, cost build-up & break-even" accentColor={T.teal}>
+    <SectionCard title="Product Market Mix" subtitle="Full cost build-up with overhead allocation & break-even" accentColor={T.teal}>
+      {/* Overhead allocation summary */}
+      <div className="grid grid-cols-4 gap-2.5 mb-4">
+        <StatCard label="Monthly HR Costs" value={fmt(totalHR)} accent={T.purple} />
+        <StatCard label="Monthly Admin" value={fmt(totalAdmin)} accent={T.red} />
+        <StatCard label="Monthly Depreciation" value={fmt(totalDepreciation)} accent={T.gold} />
+        <StatCard label="Total Fixed Costs" value={fmt(totalFixedCosts)} accent={T.navy} />
+      </div>
+      <div className="text-[10px] mb-3 px-1 py-1.5 rounded" style={{ background: `${T.teal}08`, color: T.teal, border: `1px solid ${T.teal}20` }}>
+        Fixed costs allocated per unit = Total Fixed Costs / Total Monthly Volume ({totalMonthlyVolume} units) = {fmt(totalMonthlyVolume > 0 ? totalFixedCosts / totalMonthlyVolume : 0)}/unit
+      </div>
+
       <DataTable headers={headers}>
         {products.map((p, i) => {
-          const cost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
-          const sp = cost / (1 - (p.targetMargin || 0.35));
-          const contrib = sp - cost;
+          const directCost = (p.costElements || []).reduce((s, e) => s + e.cost, 0);
+          const vol = p.monthlyVolume || 0;
+          // Allocate overhead proportionally by volume share
+          const volumeShare = totalMonthlyVolume > 0 ? vol / totalMonthlyVolume : (1 / activeProducts);
+          const overheadPerUnit = vol > 0 ? (totalFixedCosts * volumeShare) / vol : 0;
+          const fullCost = directCost + overheadPerUnit;
+          const sp = directCost / (1 - (p.targetMargin || 0.35));
+          const contrib = sp - directCost;
+          const isExpanded = expandedProducts[i];
+
           return (
-            <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-              <PlainCell bold>{p.name}</PlainCell>
-              <td className="px-3 py-2 text-center font-bold text-[12px]" style={{ color: T.green }}>YES</td>
-              <FormulaCell>{fmt(cost)}</FormulaCell>
-              <FormulaCell>{fmt(sp)}</FormulaCell>
-              <PlainCell align="right">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</PlainCell>
-              <FormulaCell>{fmt(contrib)}</FormulaCell>
-              <FormulaCell>{contrib > 0 ? '\u2014' : 'N/A'}</FormulaCell>
-            </tr>
+            <React.Fragment key={i}>
+              {/* Main product row */}
+              <tr className="sheet-row border-b cursor-pointer" style={{ borderColor: T.bg2 }}
+                  onClick={() => toggleExpand(i)}>
+                <td className="px-2 py-2 w-6">
+                  {isExpanded
+                    ? <ChevronDown className="w-3.5 h-3.5" style={{ color: T.teal }} />
+                    : <ChevronRight className="w-3.5 h-3.5" style={{ color: T.t3 }} />}
+                </td>
+                <PlainCell bold>{p.name}</PlainCell>
+                <td className="px-3 py-2 text-center font-bold text-[12px]" style={{ color: T.green }}>YES</td>
+                <FormulaCell>{fmt(directCost)}</FormulaCell>
+                <FormulaCell>{fmt(overheadPerUnit)}</FormulaCell>
+                <FormulaCell>{fmt(fullCost)}</FormulaCell>
+                <FormulaCell>{fmt(sp)}</FormulaCell>
+                <PlainCell align="right">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</PlainCell>
+                <FormulaCell>{fmt(contrib)}</FormulaCell>
+              </tr>
+              {/* Expanded cost breakdown */}
+              {isExpanded && (
+                <>
+                  {/* Cost element header */}
+                  <tr style={{ background: `${T.teal}08` }}>
+                    <td></td>
+                    <td colSpan={2} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.04em]" style={{ color: T.teal }}>
+                      Cost Element
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-[10px] font-bold uppercase tracking-[0.04em]" style={{ color: T.teal }}>
+                      Category
+                    </td>
+                    <td colSpan={2} className="px-3 py-1.5 text-right text-[10px] font-bold uppercase tracking-[0.04em]" style={{ color: T.teal }}>
+                      Cost/Unit
+                    </td>
+                    <td colSpan={3} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.04em]" style={{ color: T.teal }}>
+                      Estimation Basis
+                    </td>
+                  </tr>
+                  {(p.costElements || []).map((ce, j) => (
+                    <tr key={`ce-${i}-${j}`} style={{ background: `${T.teal}04`, borderBottom: `1px solid ${T.bg2}` }}>
+                      <td></td>
+                      <td colSpan={2} className="px-3 py-1.5 text-[11px]" style={{ color: T.t1, paddingLeft: '2rem' }}>
+                        {ce.name}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-[10px]" style={{ color: T.t2 }}>
+                        <span className="px-1.5 py-0.5 rounded" style={{ background: `${T.teal}10`, color: T.teal }}>
+                          {categoryLabels[ce.category] || ce.category || 'Other'}
+                        </span>
+                      </td>
+                      {onUpdateCostElement ? (
+                        <EditableInlineCell colSpan={2} value={ce.cost} format="currency" onChange={(v) => onUpdateCostElement(i, j, 'cost', v)} />
+                      ) : (
+                        <td colSpan={2} className="px-3 py-1.5 text-right font-num text-[11px]" style={{ color: '#0000FF', background: `${T.input}30` }}>
+                          {fmt(ce.cost)}
+                        </td>
+                      )}
+                      <td colSpan={3} className="px-3 py-1.5 text-[10px] italic" style={{ color: T.t3 }}>
+                        {ce.notes || '\u2014'}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Subtotal row */}
+                  <tr style={{ background: `${T.teal}12`, borderBottom: `2px solid ${T.teal}30` }}>
+                    <td></td>
+                    <td colSpan={2} className="px-3 py-1.5 text-[11px] font-bold" style={{ color: T.teal, paddingLeft: '2rem' }}>
+                      Direct Cost Subtotal
+                    </td>
+                    <td></td>
+                    <td colSpan={2} className="px-3 py-1.5 text-right font-num font-bold text-[11px]" style={{ color: T.teal }}>
+                      {fmt(directCost)}
+                    </td>
+                    <td colSpan={3} className="px-3 py-1.5 text-[10px]" style={{ color: T.t3 }}>
+                      Sum of {(p.costElements || []).length} cost elements
+                    </td>
+                  </tr>
+                  {/* Overhead allocation row */}
+                  <tr style={{ background: `${T.gold}08`, borderBottom: `2px solid ${T.bg3}` }}>
+                    <td></td>
+                    <td colSpan={2} className="px-3 py-1.5 text-[11px] font-bold" style={{ color: T.gold, paddingLeft: '2rem' }}>
+                      + Allocated Overhead/Unit
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-[10px]" style={{ color: T.t2 }}>
+                      <span className="px-1.5 py-0.5 rounded" style={{ background: `${T.gold}10`, color: T.gold }}>Fixed Costs</span>
+                    </td>
+                    <td colSpan={2} className="px-3 py-1.5 text-right font-num font-bold text-[11px]" style={{ color: T.gold }}>
+                      {fmt(overheadPerUnit)}
+                    </td>
+                    <td colSpan={3} className="px-3 py-1.5 text-[10px] italic" style={{ color: T.t3 }}>
+                      {fmt(totalFixedCosts)} \u00D7 {(volumeShare * 100).toFixed(1)}% / {vol} units
+                    </td>
+                  </tr>
+                </>
+              )}
+            </React.Fragment>
           );
         })}
       </DataTable>
-      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>* Break-even calculated per-product against allocated fixed costs in the Excel file</p>
+      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>
+        Click any product row to expand its full cost breakdown. Direct costs come from the Manufacturing sheet; overhead is allocated proportionally by volume.
+      </p>
     </SectionCard>
   );
 }
@@ -724,19 +919,47 @@ function LTVView({ params, onUpdate }) {
   );
 }
 
-function TargetProfitView({ products, profitTargets, employees, adminExpenses }) {
+function TargetProfitView({ products, profitTargets, employees, adminExpenses, onUpdateProfitTarget }) {
   if (!products?.length) return <EmptySheet label="Target Profit Calculator" />;
   const totalHR = (employees || []).reduce((s, e) => s + (e.count || 1) * e.monthlySalary, 0);
   const totalAdmin = (adminExpenses || []).reduce((s, e) => s + e.monthlyAmount, 0);
   const totalFixed = totalHR + totalAdmin;
   const targetProfit = profitTargets?.targetMonthlyProfit || 0;
+  const rationale = profitTargets?.rationale || '';
   const reqContrib = totalFixed + targetProfit;
   const headers = [
     { label: 'Product' }, { label: 'Contribution/Unit', align: 'right' },
     { label: 'Required Units/Mo', align: 'right' }, { label: 'Required Revenue/Mo', align: 'right' },
   ];
   return (
-    <SectionCard title="Target Profit Calculator" subtitle="Reverse-engineer sales targets" accentColor={T.gold}>
+    <SectionCard title="Target Profit Calculator" subtitle="Set your desired profit and reverse-engineer sales targets" accentColor={T.gold}>
+      {/* Editable profit target */}
+      <div className="rounded-lg p-4 mb-4" style={{ background: `linear-gradient(135deg, ${T.green}08, ${T.bg1} 40%)`, border: `1px solid ${T.green}25`, boxShadow: T.card }}>
+        <div className="flex items-center gap-3 mb-2">
+          <Target className="w-5 h-5" style={{ color: T.green }} />
+          <div className="text-[13px] font-bold" style={{ color: T.t0 }}>Desired Monthly Profit</div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.bg3}` }}>
+              <table className="w-full text-[12px]">
+                <tbody>
+                  <tr className="sheet-row">
+                    <td className="px-3 py-2 font-semibold" style={{ color: T.t1, width: '200px' }}>Target Monthly Profit</td>
+                    <EditableInputCell value={targetProfit} format="currency" onChange={onUpdateProfitTarget ? (v) => onUpdateProfitTarget('targetMonthlyProfit', v) : null} />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {rationale && (
+          <div className="text-[10px] mt-2 px-1 italic" style={{ color: T.t2 }}>
+            {rationale}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-3 gap-2.5 mb-4">
         <StatCard label="Total Fixed Costs" value={fmt(totalFixed)} accent={T.red} />
         <StatCard label="Target Profit" value={fmt(targetProfit)} accent={T.green} />
@@ -759,7 +982,7 @@ function TargetProfitView({ products, profitTargets, employees, adminExpenses })
           );
         })}
       </DataTable>
-      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>* Revenue split equally across products. Excel uses customizable mix ratios.</p>
+      <p className="text-[10px] mt-2" style={{ color: T.t3 }}>* Revenue split equally across products. Excel uses customizable mix ratios. Edit the profit target above to see required units recalculate instantly.</p>
     </SectionCard>
   );
 }
@@ -908,6 +1131,121 @@ function ScenarioView({ scenarios }) {
           </tr>
         ))}
       </DataTable>
+    </SectionCard>
+  );
+}
+
+function CostSuggestionsView({ suggestions, profitTargets }) {
+  if (!suggestions?.length) {
+    return (
+      <SectionCard title="Smart Suggestions" subtitle="AI-powered cost optimization recommendations" accentColor={T.green}>
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3" style={{ background: `${T.green}10` }}>
+            <Lightbulb className="w-6 h-6" style={{ color: T.green, opacity: 0.4 }} />
+          </div>
+          <p className="text-[13px] font-semibold" style={{ color: T.t1 }}>No suggestions yet</p>
+          <p className="text-[11px] mt-1" style={{ color: T.t3 }}>Cost optimization suggestions will appear here after your model is generated.</p>
+        </div>
+      </SectionCard>
+    );
+  }
+
+  const totalSavings = suggestions.reduce((s, sg) => s + (sg.monthlySavings || 0), 0);
+  const targetProfit = profitTargets?.targetMonthlyProfit || 0;
+
+  const impactColors = {
+    high: T.green,
+    medium: T.gold,
+    low: T.t3,
+  };
+
+  const categoryIcons = {
+    rent: '\uD83C\uDFE2',
+    hiring: '\uD83D\uDC65',
+    marketing: '\uD83D\uDCE3',
+    operations: '\u2699\uFE0F',
+    technology: '\uD83D\uDCBB',
+    finance: '\uD83D\uDCB0',
+    general: '\uD83D\uDCA1',
+  };
+
+  return (
+    <SectionCard title="Smart Suggestions" subtitle={`${suggestions.length} cost optimization recommendations`} accentColor={T.green}>
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-2.5 mb-5">
+        <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.green}08, ${T.bg1} 40%)`, border: `1px solid ${T.green}25`, boxShadow: T.card }}>
+          <div className="text-[10px] font-bold uppercase tracking-[0.05em]" style={{ color: T.green }}>Potential Monthly Savings</div>
+          <div className="text-xl font-bold font-num mt-1" style={{ color: T.t0 }}>{fmt(totalSavings)}</div>
+          <div className="text-[10px] mt-1" style={{ color: T.green }}>{fmt(totalSavings * 12)}/year</div>
+        </div>
+        <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.teal}08, ${T.bg1} 40%)`, border: `1px solid ${T.teal}25`, boxShadow: T.card }}>
+          <div className="text-[10px] font-bold uppercase tracking-[0.05em]" style={{ color: T.teal }}>Target Profit</div>
+          <div className="text-xl font-bold font-num mt-1" style={{ color: T.t0 }}>{fmt(targetProfit)}</div>
+          <div className="text-[10px] mt-1" style={{ color: T.teal }}>{profitTargets?.rationale || 'Set in Target Profit Calculator'}</div>
+        </div>
+        <div className="rounded-xl p-4" style={{ background: `linear-gradient(135deg, ${T.gold}08, ${T.bg1} 40%)`, border: `1px solid ${T.gold}25`, boxShadow: T.card }}>
+          <div className="text-[10px] font-bold uppercase tracking-[0.05em]" style={{ color: T.gold }}>Savings as % of Profit Target</div>
+          <div className="text-xl font-bold font-num mt-1" style={{ color: T.t0 }}>
+            {targetProfit > 0 ? `${((totalSavings / targetProfit) * 100).toFixed(0)}%` : '\u2014'}
+          </div>
+          <div className="text-[10px] mt-1" style={{ color: T.gold }}>
+            {targetProfit > 0 && totalSavings > 0 ? 'of your profit target can be covered by savings' : 'Set a profit target to see impact'}
+          </div>
+        </div>
+      </div>
+
+      {/* Suggestion cards */}
+      <div className="space-y-3">
+        {suggestions.map((sg, i) => {
+          const impactColor = impactColors[sg.impact] || T.t3;
+          const icon = categoryIcons[sg.category] || '\uD83D\uDCA1';
+          return (
+            <div key={sg.id || i} className="rounded-lg overflow-hidden hover-lift transition-all"
+                 style={{ border: `1px solid ${T.bg3}`, boxShadow: T.card }}>
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: T.bg1 }}>
+                <span className="text-lg flex-shrink-0">{icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-bold" style={{ color: T.t0 }}>{sg.title}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-[0.04em]"
+                          style={{ background: `${impactColor}15`, color: impactColor }}>
+                      {sg.impact} impact
+                    </span>
+                  </div>
+                  <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: T.t2 }}>{sg.description}</p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <div className="text-[10px] font-bold uppercase" style={{ color: T.green }}>Save</div>
+                  <div className="text-[15px] font-bold font-num" style={{ color: T.green }}>{fmt(sg.monthlySavings)}</div>
+                  <div className="text-[9px]" style={{ color: T.t3 }}>/month</div>
+                </div>
+              </div>
+              {/* Cost comparison bar */}
+              <div className="px-4 py-2.5 flex items-center gap-4" style={{ background: T.bg2 }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold" style={{ color: T.red }}>Current:</span>
+                  <span className="text-[12px] font-bold font-num" style={{ color: T.red }}>{fmt(sg.currentCost)}</span>
+                </div>
+                <ArrowDownCircle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: T.green }} />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold" style={{ color: T.green }}>Suggested:</span>
+                  <span className="text-[12px] font-bold font-num" style={{ color: T.green }}>{fmt(sg.suggestedCost)}</span>
+                </div>
+                {sg.tradeoffs && (
+                  <div className="flex-1 text-right">
+                    <span className="text-[9px] italic" style={{ color: T.t3 }}>Tradeoff: {sg.tradeoffs}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] mt-3" style={{ color: T.t3 }}>
+        These suggestions are AI-generated based on your business model and industry benchmarks. Discuss specific suggestions in the chat to apply them to your model.
+      </p>
     </SectionCard>
   );
 }

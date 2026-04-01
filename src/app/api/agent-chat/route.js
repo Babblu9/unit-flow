@@ -248,20 +248,31 @@ async function handleGenerate(kg) {
   kg.industry = draft.industry || kg.industry;
 
   // Generate a summary message
+  const costSuggestionsPreview = (draft.costSuggestions || []).slice(0, 3).map(s =>
+    `  - **${s.title}**: ${s.description?.substring(0, 80) || ''} (save \u20B9${(s.monthlySavings || 0).toLocaleString('en-IN')}/mo)`
+  ).join('\n');
+  const totalPotentialSavings = (draft.costSuggestions || []).reduce((sum, s) => sum + (s.monthlySavings || 0), 0);
+
   const { text: summaryText } = await generateText({
     model: model,
     system: buildSystemPrompt('confirm_review', kgForPrompt),
     prompt: `You just generated a complete Unit Economics model for "${kg.companyName || 'the business'}".
 Summarize what was generated in a concise bullet list:
 - ${draft.employees?.length || 0} team members across ${new Set(draft.employees?.map(e => e.department) || []).size} departments
-- ${draft.products?.length || 0} products/services
+- ${draft.products?.length || 0} products/services (with detailed cost breakdowns)
 - ${draft.marketingChannels?.length || 0} marketing channels (AI-generated)
 - ${draft.adminExpenses?.length || 0} admin expense items
 - ${draft.capexItems?.length || 0} CAPEX items
 - ${draft.loans?.length || 0} loan(s)
 - ${draft.cities?.length || 0} cities for geo pricing
+- Profit target: \u20B9${(draft.profitTargets?.targetMonthlyProfit || 0).toLocaleString('en-IN')}/month${draft.profitTargets?.rationale ? ` (${draft.profitTargets.rationale})` : ''}
 
-Ask them to review and confirm, or make changes. Keep it under 8 lines.`,
+After the model summary, introduce the cost optimization suggestions conversationally. Say something like:
+"I also found **${draft.costSuggestions?.length || 0} ways to optimize your costs** (potential savings: \u20B9${totalPotentialSavings.toLocaleString('en-IN')}/month). You can review each suggestion below \u2014 tap to expand, then **Apply** or **Skip** each one."
+
+DO NOT list the individual suggestions in the text \u2014 they will be rendered as interactive cards below your message automatically. Just mention the count and total savings.
+
+Ask them to review the suggestions and confirm, or make changes. Keep it under 10 lines.`,
   });
 
   return { aiResponse: summaryText, nextStep: 'confirm_review', draft, kg };
@@ -538,7 +549,7 @@ export async function POST(request) {
         monthlyRevenue: String(kg.monthlyRevenue || ''),
         investmentAmount: String(kg.investmentAmount || ''),
         monthlyRent: String(kg.monthlyRent || ''),
-        profitTarget: String(kg.profitTarget || ''),
+        profitTarget: String(draft.profitTargets?.targetMonthlyProfit || kg.profitTarget || ''),
         loansBorrowings: String(kg.loansBorrowings || ''),
       },
       employees: draft.employees || [],
@@ -551,6 +562,7 @@ export async function POST(request) {
       ltvParams: draft.ltvParams || null,
       scenarios: draft.scenarios || null,
       profitTargets: draft.profitTargets || null,
+      costSuggestions: draft.costSuggestions || [],
     } : null;
 
     // Save conversation
@@ -583,6 +595,7 @@ export async function POST(request) {
         channelCount: draft.marketingChannels?.length,
         cityCount: draft.cities?.length,
       } : null,
+      costSuggestions: draft?.costSuggestions || null,
       screenPhase,
     });
 

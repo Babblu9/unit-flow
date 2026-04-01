@@ -565,8 +565,8 @@ function mapLTV(ltvParams, set) {
 }
 
 function mapTargetProfit(draft, set) {
-  // C4 = target monthly profit (INPUT)
-  const profitTarget = draft.profitTargets?.targetMonthlyProfit || 100000;
+  // C4 = target monthly profit (INPUT) — use AI-generated or user-specified profit target
+  const profitTarget = draft.profitTargets?.targetMonthlyProfit || 0;
   set(TARGET_SHEET, 'C4', profitTarget);
 
   // Mix % and target margins for each product

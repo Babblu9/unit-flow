@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUnitEconomics } from '@/context/UnitEconomicsContext';
 import { mapDraftToTemplate } from '@/lib/excel/cellMapper';
-import { Send, Download, Loader2, Paperclip, X, Sparkles, ArrowRight, Check, Circle } from 'lucide-react';
+import { Send, Download, Loader2, Paperclip, X, Sparkles, ArrowRight, Check, Circle, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 /* ── Step progression config ── */
@@ -69,6 +69,160 @@ function StepProgressBar({ currentStep }) {
   );
 }
 
+/* ── Inline helper: format INR ── */
+function fmtINR(n) {
+  if (n == null || isNaN(n)) return '\u20B90';
+  return '\u20B9' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+/* ── Cost Suggestion Cards (rendered inside chat messages) ── */
+function CostSuggestionCards({ suggestions, onAccept, onDismiss, liveSuggestions }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  if (!suggestions?.length) return null;
+
+  // Use live status from context (persists accept/dismiss across renders)
+  const getStatus = (s) => {
+    const live = liveSuggestions?.find(ls => ls.id === s.id);
+    return live?.status || s.status || 'pending';
+  };
+
+  const impactColors = { high: '#DC2626', medium: '#D97706', low: '#15803D' };
+  const impactBg = { high: '#FEF2F2', medium: '#FFFBEB', low: '#F0FDF4' };
+
+  const totalSavings = suggestions
+    .filter(s => getStatus(s) !== 'dismissed')
+    .reduce((sum, s) => sum + (s.monthlySavings || 0), 0);
+
+  return (
+    <div className="mt-3 space-y-2">
+      {/* Header */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-1.5">
+          <TrendingDown className="w-3.5 h-3.5" style={{ color: '#15803D' }} />
+          <span className="text-[11px] font-bold uppercase tracking-[0.04em]" style={{ color: '#15803D' }}>
+            Smart Suggestions
+          </span>
+        </div>
+        <span className="text-[10px] font-num px-2 py-0.5 rounded-full" style={{ background: '#F0FDF4', color: '#15803D' }}>
+          Save up to {fmtINR(totalSavings)}/mo
+        </span>
+      </div>
+
+      {/* Cards */}
+      {suggestions.map((s) => {
+        const status = getStatus(s);
+        const isExpanded = expandedId === s.id;
+        const isResolved = status === 'accepted' || status === 'dismissed';
+
+        return (
+          <div
+            key={s.id}
+            className="rounded-lg border transition-all"
+            style={{
+              borderColor: isResolved ? '#E2E8F0' : '#E2E8F0',
+              background: status === 'accepted' ? '#F0FDF4' : status === 'dismissed' ? '#F8FAFC' : '#FFFFFF',
+              opacity: status === 'dismissed' ? 0.55 : 1,
+            }}
+          >
+            {/* Card header — always visible */}
+            <div
+              className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer"
+              onClick={() => setExpandedId(isExpanded ? null : s.id)}
+            >
+              {/* Impact dot */}
+              <div className="flex-shrink-0 mt-0.5">
+                <div className="w-2 h-2 rounded-full" style={{ background: impactColors[s.impact] || '#94A3B8' }} />
+              </div>
+
+              {/* Title + savings */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-semibold truncate" style={{ color: status === 'dismissed' ? '#94A3B8' : '#0F172A' }}>
+                    {s.title}
+                  </span>
+                  {status === 'accepted' && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#15803D' }}>
+                      APPLIED
+                    </span>
+                  )}
+                  {status === 'dismissed' && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#F1F5F9', color: '#94A3B8' }}>
+                      SKIPPED
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-[10px] font-num" style={{ color: '#64748B' }}>
+                    {fmtINR(s.currentCost)} → {fmtINR(s.suggestedCost)}
+                  </span>
+                  <span className="text-[10px] font-bold font-num" style={{ color: '#15803D' }}>
+                    Save {fmtINR(s.monthlySavings)}/mo
+                  </span>
+                </div>
+              </div>
+
+              {/* Expand chevron */}
+              <div className="flex-shrink-0 mt-1">
+                {isExpanded
+                  ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
+                  : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#94A3B8' }} />}
+              </div>
+            </div>
+
+            {/* Expanded details */}
+            {isExpanded && (
+              <div className="px-3 pb-3 pt-0 border-t" style={{ borderColor: '#F1F5F9' }}>
+                <p className="text-[11px] mt-2 leading-[1.5]" style={{ color: '#334155' }}>
+                  {s.description}
+                </p>
+
+                {/* Impact badge */}
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style={{
+                    background: impactBg[s.impact] || '#F8FAFC',
+                    color: impactColors[s.impact] || '#64748B',
+                  }}>
+                    {s.impact} impact
+                  </span>
+                  <span className="text-[10px]" style={{ color: '#94A3B8' }}>{s.category}</span>
+                </div>
+
+                {/* Tradeoffs */}
+                {s.tradeoffs && (
+                  <p className="text-[10px] mt-1.5 italic" style={{ color: '#94A3B8' }}>
+                    Tradeoff: {s.tradeoffs}
+                  </p>
+                )}
+
+                {/* Action buttons — only for pending suggestions */}
+                {!isResolved && (
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAccept(s.id); }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-all hover:shadow-sm"
+                      style={{ background: '#15803D', color: '#fff' }}
+                    >
+                      <Check className="w-3 h-3" /> Apply this
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDismiss(s.id); }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all"
+                      style={{ background: '#F1F5F9', color: '#64748B' }}
+                    >
+                      <X className="w-3 h-3" /> Skip
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ChatPanel() {
   const {
     messages, setMessages,
@@ -81,6 +235,8 @@ export default function ChatPanel() {
     setEmployees, setMarketingChannels, setProducts,
     setCities, setAdminExpenses, setCapexItems, setLoans,
     setLtvParams, setScenarios, setProfitTargets,
+    setCostSuggestions, costSuggestions,
+    acceptSuggestion, dismissSuggestion,
     applyTemplateOverrides, templateOverrides,
   } = useUnitEconomics();
 
@@ -168,6 +324,7 @@ export default function ChatPanel() {
         if (dd.ltvParams)         setLtvParams(dd.ltvParams);
         if (dd.scenarios)         setScenarios(dd.scenarios);
         if (dd.profitTargets)     setProfitTargets(dd.profitTargets);
+        if (dd.costSuggestions)   setCostSuggestions(dd.costSuggestions);
 
         // Map draft to template cell addresses and apply as overrides
         if (data.rawDraft) {
@@ -192,6 +349,7 @@ export default function ChatPanel() {
         suggestions: data.suggestions || [],
         sheetNav: data.sheetNav,
         draft: data.draft,
+        costSuggestions: data.costSuggestions || null,
         timestamp: Date.now(),
       }]);
     } catch (err) {
@@ -206,7 +364,7 @@ export default function ChatPanel() {
     } finally {
       setIsGenerating(false);
     }
-  }, [isGenerating, conversationId, currentStep, attachment, setMessages, setConversationId, setCurrentStep, setCompletion, setIsGenerating, navigateToSheet, setBusinessInfo, setEmployees, setMarketingChannels, setProducts, setCities, setAdminExpenses, setCapexItems, setLoans, setLtvParams, setScenarios, setProfitTargets, applyTemplateOverrides]);
+  }, [isGenerating, conversationId, currentStep, attachment, setMessages, setConversationId, setCurrentStep, setCompletion, setIsGenerating, navigateToSheet, setBusinessInfo, setEmployees, setMarketingChannels, setProducts, setCities, setAdminExpenses, setCapexItems, setLoans, setLtvParams, setScenarios, setProfitTargets, setCostSuggestions, applyTemplateOverrides]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -343,6 +501,16 @@ export default function ChatPanel() {
                     <span className="font-num">{msg.draft.cityCount} cities</span>
                   </div>
                 </div>
+              )}
+
+              {/* Cost suggestion cards — interactive accept/dismiss */}
+              {msg.costSuggestions?.length > 0 && (
+                <CostSuggestionCards
+                  suggestions={msg.costSuggestions}
+                  liveSuggestions={costSuggestions}
+                  onAccept={acceptSuggestion}
+                  onDismiss={dismissSuggestion}
+                />
               )}
 
               {/* Attachment badge */}

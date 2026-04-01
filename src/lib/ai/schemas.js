@@ -32,8 +32,10 @@ export const MarketingChannelSchema = z.object({
 
 // ── Cost element (BOM) schema ──
 export const CostElementSchema = z.object({
-  name: z.string().describe('Cost element name, e.g. "Raw Material"'),
+  name: z.string().describe('Cost element name, e.g. "Raw Material", "Packaging", "Direct Labor"'),
+  category: z.enum(['raw_material', 'direct_labor', 'packaging', 'logistics', 'processing', 'overhead', 'other']).describe('Cost category for grouping and analysis'),
   cost: z.number().describe('Cost per unit in INR'),
+  notes: z.string().nullable().describe('Brief explanation of how this cost was estimated, e.g. "Market rate for organic mushroom substrate per kg"'),
 });
 
 // ── Product schema ──
@@ -112,6 +114,25 @@ export const LtvParamsSchema = z.object({
   discountRate: z.number().describe('Discount rate for LTV calculation, e.g. 0.1 for 10%'),
 });
 
+// ── Profit targets schema ──
+export const ProfitTargetsSchema = z.object({
+  targetMonthlyProfit: z.number().describe('Desired monthly profit in INR. If user did not specify, estimate a realistic target based on business stage and industry.'),
+  rationale: z.string().describe('Brief explanation of why this profit target is realistic or how it was derived, e.g. "Based on 15% net margin for early-stage D2C brands"'),
+});
+
+// ── Cost optimization suggestion schema ──
+export const CostSuggestionSchema = z.object({
+  id: z.string().describe('Unique short ID like "rent-cowork", "hire-freelance", "mkt-organic"'),
+  category: z.enum(['rent', 'hiring', 'marketing', 'operations', 'technology', 'finance', 'general']).describe('Which cost area this suggestion targets'),
+  title: z.string().describe('Short actionable title, e.g. "Switch to coworking space"'),
+  description: z.string().describe('2-3 sentence explanation of the suggestion and why it helps'),
+  currentCost: z.number().describe('Current monthly cost for the affected item in INR'),
+  suggestedCost: z.number().describe('Suggested monthly cost after optimization in INR'),
+  monthlySavings: z.number().describe('Monthly savings in INR (currentCost - suggestedCost)'),
+  impact: z.enum(['high', 'medium', 'low']).describe('Impact level on overall profitability'),
+  tradeoffs: z.string().nullable().describe('Any downsides or tradeoffs of this suggestion'),
+});
+
 // ── Assumptions schema ──
 export const AssumptionsSchema = z.object({
   workingDaysPerMonth: z.number().describe('Working days per month, typically 26'),
@@ -132,7 +153,7 @@ export const UnitEconomicsDraftSchema = z.object({
 
   employees: z.array(EmployeeSchema).describe('Full team structure'),
 
-  marketingChannels: z.array(MarketingChannelSchema).describe('Marketing plan \u2014 AI generated based on business stage and industry'),
+  marketingChannels: z.array(MarketingChannelSchema).describe('Marketing plan — AI generated based on business stage and industry'),
 
   products: z.array(ProductSchema).describe('Products/services with cost breakdown and target margins'),
 
@@ -147,6 +168,10 @@ export const UnitEconomicsDraftSchema = z.object({
   ltvParams: LtvParamsSchema.describe('Customer LTV parameters'),
 
   assumptions: AssumptionsSchema.describe('Business assumptions for the model'),
+
+  profitTargets: ProfitTargetsSchema.describe('Profit target — use user-specified target if available, otherwise estimate a realistic one'),
+
+  costSuggestions: z.array(CostSuggestionSchema).describe('3-6 actionable cost optimization suggestions based on the business model. Include specific savings amounts. For early-stage/idea businesses, suggest lean alternatives (coworking, freelancers, organic marketing). For growth/scale, suggest efficiency gains.'),
 });
 
 /**
