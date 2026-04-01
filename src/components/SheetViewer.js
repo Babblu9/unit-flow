@@ -55,11 +55,11 @@ export default function SheetViewer() {
     // Update helpers for inline editing
     updateEmployee, updateProduct, updateProductCostElement,
     updateMarketingChannel, updateAdminExpense, updateCapexItem,
-    updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget,
+    updateLoan, updateLtvParam, updateCityProduct, updateCity, updateProfitTarget,
   } = useUnitEconomics();
 
   const data = { businessInfo, employees, marketingChannels, products, adminExpenses, capexItems, loans, ltvParams, scenarios, cities, selectedCity, profitTargets, costSuggestions };
-  const updaters = { updateEmployee, updateProduct, updateProductCostElement, updateMarketingChannel, updateAdminExpense, updateCapexItem, updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget };
+  const updaters = { updateEmployee, updateProduct, updateProductCostElement, updateMarketingChannel, updateAdminExpense, updateCapexItem, updateLoan, updateLtvParam, updateCityProduct, updateCity, updateProfitTarget };
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--bg-page)]">
@@ -135,13 +135,13 @@ function SheetContent({ sheetName, data, updaters }) {
     '1.1 Rate Card': () => <RateCardView employees={data.employees} />,
     '2. Marketing Costs': () => <MarketingView channels={data.marketingChannels} onUpdate={updaters.updateMarketingChannel} />,
     '3. Manufacturing Costs': () => <ManufacturingView products={data.products} onUpdate={updaters.updateProduct} />,
-    '3A. Geo Purchase Costs': () => <GeoPurchaseView cities={data.cities} onUpdate={updaters.updateCityProduct} />,
-    '3B. Geo Sale Prices': () => <GeoSalePriceView cities={data.cities} onUpdate={updaters.updateCityProduct} />,
+    '3A. Geo Purchase Costs': () => <GeoPurchaseView cities={data.cities} onUpdate={updaters.updateCityProduct} onUpdateCity={updaters.updateCity} />,
+    '3B. Geo Sale Prices': () => <GeoSalePriceView cities={data.cities} onUpdate={updaters.updateCityProduct} onUpdateCity={updaters.updateCity} />,
     '3C. Geo Selector': () => <GeoSelectorView cities={data.cities} selectedCity={data.selectedCity} products={data.products} />,
     '3D. Admin & Other Expenses': () => <AdminView expenses={data.adminExpenses} onUpdate={updaters.updateAdminExpense} />,
     '3E. Capital Expenses (CAPEX)': () => <CapexView items={data.capexItems} onUpdate={updaters.updateCapexItem} />,
     '3F. Finance Costs': () => <FinanceView loans={data.loans} onUpdate={updaters.updateLoan} />,
-    '4. Product Market Mix': () => <ProductMixView products={data.products} employees={data.employees} adminExpenses={data.adminExpenses} capexItems={data.capexItems} onUpdateCostElement={updaters.updateProductCostElement} />,
+    '4. Product Market Mix': () => <ProductMixView products={data.products} employees={data.employees} adminExpenses={data.adminExpenses} capexItems={data.capexItems} onUpdateCostElement={updaters.updateProductCostElement} onUpdateProduct={updaters.updateProduct} />,
     '5. Customer LTV Analysis': () => <LTVView params={data.ltvParams} onUpdate={updaters.updateLtvParam} />,
     '6. Target Profit Calculator': () => <TargetProfitView products={data.products} profitTargets={data.profitTargets} employees={data.employees} adminExpenses={data.adminExpenses} onUpdateProfitTarget={updaters.updateProfitTarget} />,
     '7. Cash Flow': () => <CashFlowView products={data.products} employees={data.employees} marketingChannels={data.marketingChannels} adminExpenses={data.adminExpenses} loans={data.loans} />,
@@ -211,25 +211,36 @@ function InputCell({ children, align = 'right' }) {
 }
 
 /** Editable input cell — click to edit, blur/Enter to save */
-function EditableInputCell({ value, onChange, format = 'number', align = 'right', suffix = '' }) {
+function EditableInputCell({ value, onChange, format = 'number', align = 'right', suffix = '', stopPropagation = false }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
-  const displayValue = format === 'percent'
-    ? `${(Number(value) * 100).toFixed(1)}%`
-    : format === 'currency'
-      ? fmt(value)
-      : (suffix ? `${value}${suffix}` : value);
+  const isText = format === 'text';
+  const displayValue = isText
+    ? (value || '\u2014')
+    : format === 'percent'
+      ? `${(Number(value) * 100).toFixed(1)}%`
+      : format === 'currency'
+        ? fmt(value)
+        : (suffix ? `${value}${suffix}` : value);
 
-  const handleClick = () => {
+  const handleClick = (e) => {
+    if (stopPropagation) e?.stopPropagation();
     if (!onChange) return;
-    const raw = format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
+    const raw = isText
+      ? String(value ?? '')
+      : format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
     setEditValue(raw);
     setEditing(true);
   };
 
   const handleSave = () => {
     setEditing(false);
+    if (isText) {
+      const trimmed = editValue.trim();
+      if (trimmed && trimmed !== (value || '')) onChange(trimmed);
+      return;
+    }
     let parsed = parseFloat(editValue);
     if (isNaN(parsed)) return; // discard invalid input
     if (format === 'percent') parsed = parsed / 100;
@@ -245,7 +256,8 @@ function EditableInputCell({ value, onChange, format = 'number', align = 'right'
 
   if (editing) {
     return (
-      <td className={`px-1 py-1 text-${align}`} style={{ background: `${T.input}60` }}>
+      <td className={`px-1 py-1 text-${isText ? 'left' : align}`} style={{ background: `${T.input}60` }}
+          onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}>
         <input
           type="text"
           value={editValue}
@@ -253,8 +265,8 @@ function EditableInputCell({ value, onChange, format = 'number', align = 'right'
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="w-full px-2 py-1 text-[12px] font-num text-right rounded border outline-none"
-          style={{ borderColor: T.navy, background: '#fff', color: '#0000FF' }}
+          className={`w-full px-2 py-1 text-[12px] ${isText ? '' : 'font-num'} ${isText ? 'text-left' : 'text-right'} rounded border outline-none`}
+          style={{ borderColor: T.navy, background: '#fff', color: isText ? T.t0 : '#0000FF' }}
         />
       </td>
     );
@@ -262,8 +274,8 @@ function EditableInputCell({ value, onChange, format = 'number', align = 'right'
 
   return (
     <td
-      className={`px-3 py-2 font-num text-${align} group relative`}
-      style={{ background: `${T.input}40`, color: '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
+      className={`px-3 py-2 ${isText ? '' : 'font-num'} text-${isText ? 'left' : align} group relative`}
+      style={{ background: `${T.input}40`, color: isText ? T.t0 : '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
       onClick={handleClick}
     >
       {displayValue}
@@ -278,21 +290,31 @@ function EditableInlineCell({ value, onChange, format = 'number', colSpan = 1 })
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
-  const displayValue = format === 'percent'
-    ? `${(Number(value) * 100).toFixed(1)}%`
-    : format === 'currency'
-      ? fmt(value)
-      : value;
+  const isText = format === 'text';
+  const displayValue = isText
+    ? (value || '\u2014')
+    : format === 'percent'
+      ? `${(Number(value) * 100).toFixed(1)}%`
+      : format === 'currency'
+        ? fmt(value)
+        : value;
 
   const handleClick = () => {
     if (!onChange) return;
-    const raw = format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
+    const raw = isText
+      ? String(value ?? '')
+      : format === 'percent' ? (Number(value) * 100).toFixed(1) : String(value ?? '');
     setEditValue(raw);
     setEditing(true);
   };
 
   const handleSave = () => {
     setEditing(false);
+    if (isText) {
+      const trimmed = editValue.trim();
+      if (trimmed && trimmed !== (value || '')) onChange(trimmed);
+      return;
+    }
     let parsed = parseFloat(editValue);
     if (isNaN(parsed)) return;
     if (format === 'percent') parsed = parsed / 100;
@@ -306,7 +328,7 @@ function EditableInlineCell({ value, onChange, format = 'number', colSpan = 1 })
 
   if (editing) {
     return (
-      <td colSpan={colSpan} className="px-1 py-1 text-right" style={{ background: `${T.input}60` }}>
+      <td colSpan={colSpan} className={`px-1 py-1 ${isText ? 'text-left' : 'text-right'}`} style={{ background: `${T.input}60` }}>
         <input
           type="text"
           value={editValue}
@@ -314,8 +336,8 @@ function EditableInlineCell({ value, onChange, format = 'number', colSpan = 1 })
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="w-full px-2 py-1 text-[12px] font-num text-right rounded border outline-none"
-          style={{ borderColor: T.navy, background: '#fff', color: '#0000FF' }}
+          className={`w-full px-2 py-1 text-[12px] ${isText ? '' : 'font-num'} ${isText ? 'text-left' : 'text-right'} rounded border outline-none`}
+          style={{ borderColor: T.navy, background: '#fff', color: isText ? T.t0 : '#0000FF' }}
         />
       </td>
     );
@@ -324,8 +346,8 @@ function EditableInlineCell({ value, onChange, format = 'number', colSpan = 1 })
   return (
     <td
       colSpan={colSpan}
-      className="px-3 py-1.5 font-num text-right text-[11px] group relative"
-      style={{ background: `${T.input}30`, color: '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
+      className={`px-3 py-1.5 ${isText ? '' : 'font-num'} ${isText ? 'text-left' : 'text-right'} text-[11px] group relative`}
+      style={{ background: `${T.input}30`, color: isText ? T.t0 : '#0000FF', cursor: onChange ? 'pointer' : 'default' }}
       onClick={handleClick}
     >
       {displayValue}
@@ -415,9 +437,9 @@ function HRView({ employees, onUpdate }) {
         {employees.map((emp, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
             <PlainCell>{i + 1}</PlainCell>
-            <PlainCell bold>{emp.name}</PlainCell>
-            <PlainCell>{emp.department}</PlainCell>
-            <PlainCell>{(emp.category || '').replace('_', ' ')}</PlainCell>
+            <EditableInputCell value={emp.name} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'name', v) : null} />
+            <EditableInputCell value={emp.department} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'department', v) : null} />
+            <EditableInputCell value={(emp.category || '').replace('_', ' ')} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'category', v) : null} />
             <EditableInputCell value={emp.count || 1} onChange={onUpdate ? (v) => onUpdate(i, 'count', v) : null} />
             <EditableInputCell value={emp.monthlySalary} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'monthlySalary', v) : null} />
             <FormulaCell>{fmt((emp.count || 1) * emp.monthlySalary)}</FormulaCell>
@@ -480,7 +502,7 @@ function MarketingView({ channels, onUpdate }) {
           const cac = cust > 0 ? ch.monthlyBudget / cust : 0;
           return (
             <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-              <PlainCell bold>{ch.channel}</PlainCell>
+              <EditableInputCell value={ch.channel} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'channel', v) : null} />
               <EditableInputCell value={ch.monthlyBudget} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'monthlyBudget', v) : null} />
               <EditableInputCell value={ch.expectedLeads} onChange={onUpdate ? (v) => onUpdate(i, 'expectedLeads', v) : null} />
               <EditableInputCell value={ch.conversionRate} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'conversionRate', v) : null} />
@@ -508,8 +530,8 @@ function ManufacturingView({ products, onUpdate }) {
           const sp = tc / (1 - (p.targetMargin || 0.35));
           return (
             <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-              <PlainCell bold>{p.name}</PlainCell>
-              <PlainCell>{p.group}</PlainCell>
+              <EditableInputCell value={p.name} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'name', v) : null} />
+              <EditableInputCell value={p.group} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'group', v) : null} />
               <FormulaCell>{fmt(tc)}</FormulaCell>
               <EditableInputCell value={p.targetMargin || 0.35} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'targetMargin', v) : null} />
               <FormulaCell>{fmt(sp)}</FormulaCell>
@@ -522,7 +544,7 @@ function ManufacturingView({ products, onUpdate }) {
   );
 }
 
-function GeoPurchaseView({ cities, onUpdate }) {
+function GeoPurchaseView({ cities, onUpdate, onUpdateCity }) {
   if (!cities?.length) return <EmptySheet label="Geo Purchase Costs" />;
   const pNames = cities[0]?.products?.map(p => p.productName) || [];
   const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
@@ -531,7 +553,7 @@ function GeoPurchaseView({ cities, onUpdate }) {
       <DataTable headers={headers}>
         {cities.map((city, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-            <PlainCell bold>{city.cityName}</PlainCell>
+            <EditableInputCell value={city.cityName} format="text" onChange={onUpdateCity ? (v) => onUpdateCity(i, 'cityName', v) : null} />
             {(city.products || []).map((p, j) => (
               <EditableInputCell key={j} value={p.purchaseCost} format="currency" onChange={onUpdate ? (v) => onUpdate(i, j, 'purchaseCost', v) : null} />
             ))}
@@ -542,7 +564,7 @@ function GeoPurchaseView({ cities, onUpdate }) {
   );
 }
 
-function GeoSalePriceView({ cities, onUpdate }) {
+function GeoSalePriceView({ cities, onUpdate, onUpdateCity }) {
   if (!cities?.length) return <EmptySheet label="Geo Sale Prices" />;
   const pNames = cities[0]?.products?.map(p => p.productName) || [];
   const headers = [{ label: 'City' }, ...pNames.map(n => ({ label: n, align: 'right' }))];
@@ -551,7 +573,7 @@ function GeoSalePriceView({ cities, onUpdate }) {
       <DataTable headers={headers}>
         {cities.map((city, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-            <PlainCell bold>{city.cityName}</PlainCell>
+            <EditableInputCell value={city.cityName} format="text" onChange={onUpdateCity ? (v) => onUpdateCity(i, 'cityName', v) : null} />
             {(city.products || []).map((p, j) => (
               <EditableInputCell key={j} value={p.salePrice} format="currency" onChange={onUpdate ? (v) => onUpdate(i, j, 'salePrice', v) : null} />
             ))}
@@ -611,7 +633,7 @@ function AdminView({ expenses, onUpdate }) {
                       const globalIdx = expenses.indexOf(exp);
                       return (
                         <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-                          <PlainCell>{exp.item}</PlainCell>
+                          <EditableInputCell value={exp.item} format="text" onChange={onUpdate ? (v) => onUpdate(globalIdx, 'item', v) : null} />
                           <EditableInputCell value={exp.monthlyAmount} format="currency" onChange={onUpdate ? (v) => onUpdate(globalIdx, 'monthlyAmount', v) : null} />
                           <FormulaCell>{fmt(exp.monthlyAmount * 12)}</FormulaCell>
                         </tr>
@@ -653,8 +675,8 @@ function CapexView({ items, onUpdate }) {
       }>
         {items.map((it, i) => (
           <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-            <PlainCell>{it.category}</PlainCell>
-            <PlainCell bold>{it.item}</PlainCell>
+            <EditableInputCell value={it.category} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'category', v) : null} />
+            <EditableInputCell value={it.item} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'item', v) : null} />
             <EditableInputCell value={it.cost} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'cost', v) : null} />
             <EditableInputCell value={it.usefulLife} onChange={onUpdate ? (v) => onUpdate(i, 'usefulLife', v) : null} />
             <FormulaCell>{fmt(it.cost / it.usefulLife)}</FormulaCell>
@@ -681,7 +703,7 @@ function FinanceView({ loans, onUpdate }) {
           const emi = r > 0 ? (loan.principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : loan.principal / n;
           return (
             <tr key={i} className="sheet-row border-b" style={{ borderColor: T.bg2 }}>
-              <PlainCell bold>{loan.name}</PlainCell>
+              <EditableInputCell value={loan.name} format="text" onChange={onUpdate ? (v) => onUpdate(i, 'name', v) : null} />
               <EditableInputCell value={loan.principal} format="currency" onChange={onUpdate ? (v) => onUpdate(i, 'principal', v) : null} />
               <EditableInputCell value={loan.interestRate} format="percent" onChange={onUpdate ? (v) => onUpdate(i, 'interestRate', v) : null} />
               <EditableInputCell value={n} onChange={onUpdate ? (v) => onUpdate(i, 'tenureMonths', v) : null} />
@@ -694,7 +716,7 @@ function FinanceView({ loans, onUpdate }) {
   );
 }
 
-function ProductMixView({ products, employees, adminExpenses, capexItems, onUpdateCostElement }) {
+function ProductMixView({ products, employees, adminExpenses, capexItems, onUpdateCostElement, onUpdateProduct }) {
   if (!products?.length) return <EmptySheet label="Product Market Mix" />;
   const [expandedProducts, setExpandedProducts] = useState({});
 
@@ -763,13 +785,13 @@ function ProductMixView({ products, employees, adminExpenses, capexItems, onUpda
                     ? <ChevronDown className="w-3.5 h-3.5" style={{ color: T.teal }} />
                     : <ChevronRight className="w-3.5 h-3.5" style={{ color: T.t3 }} />}
                 </td>
-                <PlainCell bold>{p.name}</PlainCell>
+                <EditableInputCell value={p.name} format="text" stopPropagation onChange={onUpdateProduct ? (v) => onUpdateProduct(i, 'name', v) : null} />
                 <td className="px-3 py-2 text-center font-bold text-[12px]" style={{ color: T.green }}>YES</td>
                 <FormulaCell>{fmt(directCost)}</FormulaCell>
                 <FormulaCell>{fmt(overheadPerUnit)}</FormulaCell>
                 <FormulaCell>{fmt(fullCost)}</FormulaCell>
                 <FormulaCell>{fmt(sp)}</FormulaCell>
-                <PlainCell align="right">{((p.targetMargin || 0.35) * 100).toFixed(0)}%</PlainCell>
+                <EditableInputCell value={p.targetMargin || 0.35} format="percent" stopPropagation onChange={onUpdateProduct ? (v) => onUpdateProduct(i, 'targetMargin', v) : null} />
                 <FormulaCell>{fmt(contrib)}</FormulaCell>
               </tr>
               {/* Expanded cost breakdown */}
@@ -794,9 +816,13 @@ function ProductMixView({ products, employees, adminExpenses, capexItems, onUpda
                   {(p.costElements || []).map((ce, j) => (
                     <tr key={`ce-${i}-${j}`} style={{ background: `${T.teal}04`, borderBottom: `1px solid ${T.bg2}` }}>
                       <td></td>
-                      <td colSpan={2} className="px-3 py-1.5 text-[11px]" style={{ color: T.t1, paddingLeft: '2rem' }}>
-                        {ce.name}
-                      </td>
+                      {onUpdateCostElement ? (
+                        <EditableInlineCell colSpan={2} value={ce.name} format="text" onChange={(v) => onUpdateCostElement(i, j, 'name', v)} />
+                      ) : (
+                        <td colSpan={2} className="px-3 py-1.5 text-[11px]" style={{ color: T.t1, paddingLeft: '2rem' }}>
+                          {ce.name}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right text-[10px]" style={{ color: T.t2 }}>
                         <span className="px-1.5 py-0.5 rounded" style={{ background: `${T.teal}10`, color: T.teal }}>
                           {categoryLabels[ce.category] || ce.category || 'Other'}
@@ -809,9 +835,13 @@ function ProductMixView({ products, employees, adminExpenses, capexItems, onUpda
                           {fmt(ce.cost)}
                         </td>
                       )}
-                      <td colSpan={3} className="px-3 py-1.5 text-[10px] italic" style={{ color: T.t3 }}>
-                        {ce.notes || '\u2014'}
-                      </td>
+                      {onUpdateCostElement ? (
+                        <EditableInlineCell colSpan={3} value={ce.notes || ''} format="text" onChange={(v) => onUpdateCostElement(i, j, 'notes', v)} />
+                      ) : (
+                        <td colSpan={3} className="px-3 py-1.5 text-[10px] italic" style={{ color: T.t3 }}>
+                          {ce.notes || '\u2014'}
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {/* Subtotal row */}

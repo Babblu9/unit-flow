@@ -275,6 +275,16 @@ export function UnitEconomicsProvider({ children }) {
     });
   }, [rebuildTemplateOverrides]);
 
+  /** Update a city-level field (e.g. cityName) */
+  const updateCity = useCallback((cityIndex, field, value) => {
+    setCities(prev => {
+      const next = [...prev];
+      next[cityIndex] = { ...next[cityIndex], [field]: value };
+      setTimeout(() => rebuildTemplateOverrides({ cities: next }), 0);
+      return next;
+    });
+  }, [rebuildTemplateOverrides]);
+
   const updateProfitTarget = useCallback((field, value) => {
     setProfitTargets(prev => {
       const next = { ...prev, [field]: value };
@@ -535,7 +545,7 @@ export function UnitEconomicsProvider({ children }) {
       // Update helpers for inline editing
       updateEmployee, updateProduct, updateProductCostElement,
       updateMarketingChannel, updateAdminExpense, updateCapexItem,
-      updateLoan, updateLtvParam, updateCityProduct, updateProfitTarget,
+      updateLoan, updateLtvParam, updateCityProduct, updateCity, updateProfitTarget,
       rebuildTemplateOverrides,
 
       // Conversation management
