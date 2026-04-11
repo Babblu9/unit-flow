@@ -163,4 +163,5 @@ src/
 
 ## License
 
-Proprietary. All rights reserved.
+Proprietary. All rights reserved by Oneasy
+
